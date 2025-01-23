@@ -50,20 +50,20 @@ class Quantity:
             self.v = TestFunction(self.V)
             self.f_old = Function(self.V)
 
-    def set_sym_functions(self, g: None, v: None, f_old: None):
+    def set_sym_functions(self, g: None, v: None, g_old: None):
         """If we wish to set the functions manually, we can set these using the
         above parameters.
 
         :param g: The function.
         :param v: The test function.
-        :param f_old: The old function (at previous timestep).
+        :param g_old: The old function (at previous timestep).
         """
         if g is not None:
             self.g = g
         if v is not None:
             self.v = v
-        if f_old is not None:
-            self.f_old = f_old
+        if g_old is not None:
+            self.g_old = g_old
 
     def interpolate(self):
         """If there is a valid expression, interpolate this onto the function space.

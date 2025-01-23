@@ -55,7 +55,7 @@ phi_f0 = Constant(0.5)
 beta_E = Constant(1)
 
 # Diffusive parameter for the solute concentration
-D_m = Constant(1)
+D_m = Constant(0.5)
 
 # Poisson ratio and viscosity
 nu = Constant(0.3)
@@ -89,13 +89,13 @@ Computational parameters
 delta_t = 1e-2
 
 # Number of time steps
-N_time = 50
+N_time = 41
 
 # Number of mesh points
 N_x = 40
 
 # Imposed phase-averaged velocity
-vt = Expression('t < delta_t * N_time / 2 ? 0.0 : 1.0',
+vt = Expression('t < delta_t * N_time / 2 ? 0.0 : 0.0',
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -159,12 +159,12 @@ v_phi, v_E, v_c = TestFunctions(V)
 
 # Define the initial conditions
 w_0 = Expression(('phi_f0', '1', '1'), degree=1, phi_f0=phi_f0)
-w = project(w_0, V)
+w_old = project(w_0, V)
 
 
-w_old = Function(V)
+w = Function(V)
 w_phi, w_E, w_c = split(w)
-phi_f.f, E.f, c.f = w.split(deepcopy=True)
+phi_f.f, E.f, c.f = w_old.split(deepcopy=True)
 w_phi_old, w_E_old, w_c_old = split(w_old)
 phi_f.set_sym_functions(w_phi, v_phi, w_phi_old)
 E.set_sym_functions(w_E, v_E, w_E_old)
@@ -182,8 +182,8 @@ def compute_k_e(_phi_f, _phi_f0, _k_0, _mu):
     :param _mu: The viscosity.
     :return: The effective permeability.
     """
-    numerator = _k_0 * (1 - _phi_f0) * _phi_f ** 2
-    denominator = _mu * _phi_f0 ** 3 * (1 - _phi_f)
+    numerator = _k_0 * (1 - _phi_f0) * (_phi_f ** 2)
+    denominator = _mu * (_phi_f0 ** 3) * (1 - _phi_f)
     return numerator / denominator
 
 
@@ -196,8 +196,8 @@ def compute_sigma_e(_phi_f, _phi_f0, _nu):
     :return: The effective stress.
     """
     term1 = (1 - _phi_f0) ** 2 / (1 - _phi_f)
-    term2 = 2 * _nu * (1 - _phi_f0)
-    term3 = (1 - 2 * _nu) * (1 - _phi_f)
+    term2 = - 2 * _nu * (1 - _phi_f0)
+    term3 = - (1 - 2 * _nu) * (1 - _phi_f)
     denominator = 2 * (1 + _nu) * (1 - 2 * _nu)
     return (term1 + term2 + term3) / denominator
 
@@ -227,7 +227,8 @@ def right(xi):
 # Define the boundary conditions at the left and right
 bc_left_c = DirichletBC(V.sub(2), c_star, left)
 c.add_bc(bc_left_c)
-bcs = [bc_left_c]
+# bcs = [bc_left_c]
+bcs = []
 
 
 def fenics_to_numpy(_mesh: Mesh, f: Function):
@@ -263,10 +264,10 @@ def get_us(_mesh: Mesh, _phi_f: Function, _L: float, _a_t: float, _phi_f0: Const
     :param _phi_f0: The constant leading-order porosity.
     :return: The displacement u_s.
     """
-    mesh_array, phi_f1_array = fenics_to_numpy(_mesh, _phi_f1)
+    mesh_array, phi_f_array = fenics_to_numpy(_mesh, _phi_f)
     mesh_dx = mesh_array[1] - mesh_array[0]
     phi_f0_float = phi_f0.values()[0]
-    u_s0_shifted = ((si.cumtrapz(phi_f1_array, dx=mesh_dx, initial=0) - phi_f0_float) /
+    u_s0_shifted = ((si.cumtrapz(phi_f_array, dx=mesh_dx, initial=0) - phi_f0_float) /
                     ((1 - phi_f0_float) * (_L - _a_t)))
     # The below ensures u_s0 = 0 at x = 1
     u_s0 = u_s0_shifted - u_s0_shifted[-1]
@@ -286,9 +287,8 @@ def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
     """
     L_val = _L.values()[0]
     phi_f0_val = _phi_f0.values()[0]
-    mesh_array, phi_f_array = fenics_to_numpy(_mesh, _phi_f)
-    mesh_dx = float(mesh_array[1] - mesh_array[0])
-    a_t = L_val * (1 - (1 - phi_f0_val) / (1 - si.simpson(phi_f_array, dx=mesh_dx)))
+    integral_of_phi = assemble(_phi_f)
+    a_t = L_val * (1 - (1 - phi_f0_val) / (1 - integral_of_phi))
     return a_t
 
 
@@ -353,13 +353,13 @@ for n in range(N_time):
     Define the weak form
     """
     # define the time derivatives
-    dphi_dt = (phi_f.g - phi_f.f_old) / delta_t
-    dE_dt = (E.g - E.f_old) / delta_t
-    dc_dt = (c.g - c.f_old) / delta_t
+    dphi_dt = (phi_f.g - phi_f.g_old) / delta_t
+    dE_dt = (E.g - E.g_old) / delta_t
+    dc_dt = (c.g - c.g_old) / delta_t
 
     # Find intermediate expressions for the solid and fluid velocities
     v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
-    v_f = (vt - (1 - phi_f.g) * v_s) / phi_f.g
+    v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
 
     # Weak form for the phi equation
     Fun_phi = ((dphi_dt - a_dot_n * phi_f.g / (L - a_n)) * phi_f.v * dx +
@@ -370,7 +370,7 @@ for n in range(N_time):
     # Weak form for the E equation
     Fun_E = (dE_dt + beta_E * c.g * E.g
              + (v_s - (1 - xi) * a_dot_n) / (L - a_n) * E.g.dx(0)) * E.v * dx
-    # Fun_E = (dE_dt + beta_E * c.g * E.g) * E.v * dx
+    # Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
 
     # Weak form for the c equation
     Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + a_dot_n * c.g *
@@ -383,20 +383,23 @@ for n in range(N_time):
     jacobian = derivative(Fun, w)
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
+    # solver.parameters['nonlinear_solver'] = 'newton'
+    # sprms = solver.parameters['newton_solver']
+    # sprms['maximum_iterations'] = 100
 
     # Solve the problem
     solver.solve()
     # solve(Fun_phi + Fun_E + Fun_c == 0, u, bcs)
-    w_old.assign(w)
 
     # plot at the current timepoint
     phi_f.f, E.f, c.f = w.split(deepcopy=True)
-    Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
 
     # record the displacement at this time point
     x_coords, u_s_array = get_us(mesh, phi_f.f, L_num, float(a[n]), phi_f0)
     u_s.f = u_s_array
+    Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
 
+    w_old.assign(w)
     # Update the value of the left boundary
     a.append(get_a(mesh, phi_f.f, L, phi_f0))
     a_dot.append(a[n + 1] - a[n] / delta_t)
@@ -430,5 +433,14 @@ fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=u_s.cmap),
 u_s.label_plot(x_label="$\\xi$", title="Displacement")
 
 # Save figure
-fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$")
-fig.savefig(f"plots/initial/fenics_b_M_{beta_E_num}_D_m_{D_m_num}.png", bbox_inches="tight")
+fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$, $D_m={D_m_num}$")
+fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_nocflux.png", bbox_inches="tight")
+
+# Create figure for the left boundary over time
+fig_a, ax_a = plt.subplots()
+ax_a.plot(np.array(a), np.linspace(0, N_time * delta_t, N_time + 1), color='darkviolet')
+ax_a.set_xlabel("Left boundary")
+ax_a.set_ylabel("Time")
+ax_a.set_xlim(0, L_num)
+fig_a.suptitle(f"Left boundary over time with $\\beta_E={beta_E_num}$")
+fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_nocflux.png", bbox_inches="tight")
