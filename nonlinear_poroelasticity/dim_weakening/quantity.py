@@ -28,8 +28,8 @@ class Quantity:
         self._pos = pos
         self._mesh = mesh
         self._expression = expression
-        self.g = None
         self.f = None
+        self.g = None
         self.create_functions_from_mesh(mesh)
         self.interpolate()
         self.ax = None
@@ -44,11 +44,12 @@ class Quantity:
         """
         if mesh is not None:
             if self.f is not None:
-                _, self.f_np = self.fenics_to_numpy(self._mesh, self.f)
+                _, self.array = self.fenics_to_numpy(self._mesh, self.f)
             self.V = FunctionSpace(mesh, FiniteElement("Lagrange", interval, 1))
             self.f = Function(self.V)
             self.v = TestFunction(self.V)
-            self.f_old = Function(self.V)
+            self.g_old = Function(self.V)
+            self.g = self.f
 
     def set_sym_functions(self, g: None, v: None, g_old: None):
         """If we wish to set the functions manually, we can set these using the
@@ -70,7 +71,7 @@ class Quantity:
         """
         if self._expression is not None:
             self.f = interpolate(self._expression, self.V)
-            _, self.f_np = self.fenics_to_numpy(self._mesh, self.f)
+            _, self.array = self.fenics_to_numpy(self._mesh, self.f)
 
     def bind_ic(self, ic):
         """Binds an initial condition to the function.
@@ -79,11 +80,11 @@ class Quantity:
         condition.
         """
         if isinstance(ic, np.ndarray):
-            self.f.vector().set_local(ic)
+            self.g.vector().set_local(ic)
         else:
-            self.f.interpolate(ic)
-        self.f_old.assign(self.f)
-        _, self.f_np = self.fenics_to_numpy(self._mesh, self.f)
+            self.g.interpolate(ic)
+        self.g_old.assign(self.g)
+        _, self.array = self.fenics_to_numpy(self._mesh, self.g)
 
     def solve(self, weak_form: Function):
         """Solves the quantity one step forward in time for the given weak form.
@@ -91,15 +92,15 @@ class Quantity:
         :param weak_form: The given expression for the numerical solver.
         """
         # Define the Jacobian, problem and solver
-        jacobian = derivative(weak_form, self.f)
-        problem = NonlinearVariationalProblem(weak_form, self.f, self._bcs, jacobian)
+        jacobian = derivative(weak_form, self.g)
+        problem = NonlinearVariationalProblem(weak_form, self.g, self._bcs, jacobian)
         solver = NonlinearVariationalSolver(problem)
 
         # Solve the problem
         solver.solve()
 
         # Update the old solution
-        self.f_old.assign(self.f)
+        self.g_old.assign(self.g)
 
     @staticmethod
     def fenics_to_numpy(_mesh: Mesh, f: Function):

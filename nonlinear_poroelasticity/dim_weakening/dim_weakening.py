@@ -65,7 +65,7 @@ mu = Constant(1)
 k_0 = Constant(1)
 
 # Fixed concentration on the left
-c_star = Constant(1)
+c_star = Constant(1.0)
 
 x = Expression('x[0]', degree=1)
 
@@ -89,13 +89,17 @@ Computational parameters
 delta_t = 1e-2
 
 # Number of time steps
-N_time = 41
+N_time = 12
 
 # Number of mesh points
 N_x = 40
 
 # Imposed phase-averaged velocity
-vt = Expression('t < delta_t * N_time / 2 ? 0.0 : 0.0',
+vt_0 = '0.0'
+vt_small = '0.0001'
+vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
+vt_cts = 't'
+vt = Expression(vt_small,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -204,6 +208,7 @@ def compute_sigma_e(_phi_f, _phi_f0, _nu):
 
 k_e = Quantity("$k_{e}(\\phi_{f})$", "GnBu", 3, mesh)
 sigma_e = Quantity("$\\sigma_{e}(\\phi_{f})$", "YlOrBr", 4, mesh)
+u_s = Quantity("$u_s$", "Greens", 5, mesh)
 
 """
 Define the Dirichlet boundary conditions
@@ -227,8 +232,11 @@ def right(xi):
 # Define the boundary conditions at the left and right
 bc_left_c = DirichletBC(V.sub(2), c_star, left)
 c.add_bc(bc_left_c)
-# bcs = [bc_left_c]
-bcs = []
+bcs = [bc_left_c]
+# bcs = []
+
+bc_right_us = DirichletBC(u_s.V, 0, right)
+u_s.add_bc(bc_right_us)
 
 
 def fenics_to_numpy(_mesh: Mesh, f: Function):
@@ -246,34 +254,6 @@ def fenics_to_numpy(_mesh: Mesh, f: Function):
     return mesh_array, f_array
 
 
-def get_us(_mesh: Mesh, _phi_f: Function, _L: float, _a_t: float, _phi_f0: Constant):
-    """Calculates the leading order displacement given phi_f1 and phi_f0 according
-    to the below formula:
-
-    \\diffp{u_s}{\\xi} = \\frac{\\phi_{f} - \\phi_{f,0}}{(1 - \\phi_{f,0})(L - a(t))}
-
-    This function uses scipy's cumtrapz function to approximate the indefinite
-    integral. We also have the fixed boundary condition that u_s(x=L) = 0,
-    and so we will adjust the solution after integrating to ensure that u_s0
-    is at 0 when \\xi is 1.
-
-    :param _mesh: The mesh for the domain.
-    :param _phi_f: The given function for porosity.
-    :param _L: The length of the domain.
-    :param _a_t: The moving boundary at current time.
-    :param _phi_f0: The constant leading-order porosity.
-    :return: The displacement u_s.
-    """
-    mesh_array, phi_f_array = fenics_to_numpy(_mesh, _phi_f)
-    mesh_dx = mesh_array[1] - mesh_array[0]
-    phi_f0_float = phi_f0.values()[0]
-    u_s0_shifted = ((si.cumtrapz(phi_f_array, dx=mesh_dx, initial=0) - phi_f0_float) /
-                    ((1 - phi_f0_float) * (_L - _a_t)))
-    # The below ensures u_s0 = 0 at x = 1
-    u_s0 = u_s0_shifted - u_s0_shifted[-1]
-    return mesh_array.transpose()[0], u_s0
-
-
 def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
     """Calculates the left moving boundary given a porosity profile phi_f as:
     a(t) = L - \\frac{1 - \\phi_{f,0}}{1 - \\int_{0}^{1}\\phi_{f}(\\xi, t)d\\xi}.
@@ -285,10 +265,8 @@ def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
     :param _phi_f0: The constant initial porosity.
     :return: The current position of the left boundary.
     """
-    L_val = _L.values()[0]
-    phi_f0_val = _phi_f0.values()[0]
-    integral_of_phi = assemble(_phi_f)
-    a_t = L_val * (1 - (1 - phi_f0_val) / (1 - integral_of_phi))
+    integral_of_phi = assemble(_phi_f * dx)
+    a_t = _L * (1 - (1 - _phi_f0) / (1 - integral_of_phi))
     return a_t
 
 
@@ -297,11 +275,6 @@ def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
 # phi_f.bind_ic(phi_f0)
 # c.bind_ic(Constant(1))
 # E.bind_ic(Constant(1))
-
-# Define our displacement
-x_coords, u_array = get_us(mesh, phi_f.f, L_num, float(a[0]), phi_f0)
-u_s = Quantity("$u_s$", "Greens", 5, mesh)
-u_s.f = u_array
 
 # Define our fluid and solid velocities on the right
 # qt = 0
@@ -368,9 +341,9 @@ for n in range(N_time):
                (vt - (1 - xi) * a_dot_n) * phi_f.v / (L - a_n) * ds)
 
     # Weak form for the E equation
-    Fun_E = (dE_dt + beta_E * c.g * E.g
-             + (v_s - (1 - xi) * a_dot_n) / (L - a_n) * E.g.dx(0)) * E.v * dx
-    # Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
+    # Fun_E = (dE_dt + beta_E * c.g * E.g
+    #          + (v_s - (1 - xi) * a_dot_n) / (L - a_n) * E.g.dx(0)) * E.v * dx
+    Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
 
     # Weak form for the c equation
     Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + a_dot_n * c.g *
@@ -391,12 +364,15 @@ for n in range(N_time):
     solver.solve()
     # solve(Fun_phi + Fun_E + Fun_c == 0, u, bcs)
 
-    # plot at the current timepoint
     phi_f.f, E.f, c.f = w.split(deepcopy=True)
 
-    # record the displacement at this time point
-    x_coords, u_s_array = get_us(mesh, phi_f.f, L_num, float(a[n]), phi_f0)
-    u_s.f = u_s_array
+    # solve for the displacement
+    Fun_us = ((u_s.g * u_s.v.dx(0) +
+               (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a_n)) * u_s.v) * dx -
+              u_s.g * u_s.v * ds)
+    u_s.solve(Fun_us)
+
+    # plot at the current timepoint
     Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
 
     w_old.assign(w)
@@ -434,7 +410,7 @@ u_s.label_plot(x_label="$\\xi$", title="Displacement")
 
 # Save figure
 fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$, $D_m={D_m_num}$")
-fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_nocflux.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallvt.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -443,4 +419,4 @@ ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.set_xlim(0, L_num)
 fig_a.suptitle(f"Left boundary over time with $\\beta_E={beta_E_num}$")
-fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_nocflux.png", bbox_inches="tight")
+fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallvt.png", bbox_inches="tight")

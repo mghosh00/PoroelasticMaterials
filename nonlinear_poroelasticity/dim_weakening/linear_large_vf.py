@@ -276,8 +276,8 @@ for n in range(N_time):
     Define the weak form
     """
     # define the time derivatives
-    dc_0_dt = (c_0.f - c_0.f_old) / delta_t
-    dM_0_dt = (M_0.f - M_0.f_old) / delta_t
+    dc_0_dt = (c_0.g - c_0.g_old) / delta_t
+    dM_0_dt = (M_0.g - M_0.g_old) / delta_t
 
     # Evaluate Qt, gt and sigma_xx0_prime at the current timepoint
     Qt.t = ts + n * delta_t
@@ -287,10 +287,10 @@ for n in range(N_time):
     # Weak form of c includes the Neumann boundary condition on x = 1
     # Fun_c = (dc_0_dt * v_c * dx + D_M_tilde * c_0.dx(0) * v_c.dx(0) * dx
     #          - D_M_tilde * v_c * ds)
-    Fun_c = (dc_0_dt * c_0.v * dx + (1 / Pe) * c_0.f.dx(0) * c_0.v.dx(0) * dx
-             - Qt * c_0.f * c_0.v.dx(0) * dx)
+    Fun_c = (dc_0_dt * c_0.v * dx + (1 / Pe) * c_0.g.dx(0) * c_0.v.dx(0) * dx
+             - Qt * c_0.g * c_0.v.dx(0) * dx)
     # Weak form of M has no x derivatives
-    Fun_M = dM_0_dt * M_0.v * dx + b_M * c_0.f * M_0.f * M_0.v * dx
+    Fun_M = dM_0_dt * M_0.v * dx + b_M * c_0.g * M_0.g * M_0.v * dx
 
     # solve the weak forms
     c_0.solve(Fun_c)
