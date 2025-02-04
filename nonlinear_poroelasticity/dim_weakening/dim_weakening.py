@@ -79,27 +79,27 @@ a = [0.0]
 
 # IMPORTANT!! The below line is only true when the system starts off with no
 # deformation (which is the case when we have prescribed v = 0 initially)
-a_dot = [0.0]
+a_dot = [1e-4]
 
 """
 Computational parameters
 """
 
 # Size of time step
-delta_t = 1e-2
+delta_t = 1e-3
 
 # Number of time steps
-N_time = 12
+N_time = 17
 
 # Number of mesh points
 N_x = 40
 
 # Imposed phase-averaged velocity
 vt_0 = '0.0'
-vt_small = '0.0001'
+vt_small = f'{a_dot[0]}'
 vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
-vt_cts = 't'
-vt = Expression(vt_small,
+vt_cts_small = f'{a_dot[0]} * t'
+vt = Expression(vt_cts_small,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -367,9 +367,8 @@ for n in range(N_time):
     phi_f.f, E.f, c.f = w.split(deepcopy=True)
 
     # solve for the displacement
-    Fun_us = ((u_s.g * u_s.v.dx(0) +
-               (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a_n)) * u_s.v) * dx -
-              u_s.g * u_s.v * ds)
+    Fun_us = ((u_s.g.dx(0) * u_s.v -
+               (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a_n)) * u_s.v) * dx)
     u_s.solve(Fun_us)
 
     # plot at the current timepoint
@@ -377,8 +376,11 @@ for n in range(N_time):
 
     w_old.assign(w)
     # Update the value of the left boundary
-    a.append(get_a(mesh, phi_f.f, L, phi_f0))
-    a_dot.append(a[n + 1] - a[n] / delta_t)
+    a.append(get_a(mesh, phi_f.f, L_num, phi_f0_num))
+
+    # Here, we use single differences
+    a_dot_new = a[n + 1] - a[n] / delta_t
+    a_dot.append(a_dot_new)
 
 """
 Colourbars
@@ -410,13 +412,13 @@ u_s.label_plot(x_label="$\\xi$", title="Displacement")
 
 # Save figure
 fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$, $D_m={D_m_num}$")
-fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallvt.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
 ax_a.plot(np.array(a), np.linspace(0, N_time * delta_t, N_time + 1), color='darkviolet')
 ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
-ax_a.set_xlim(0, L_num)
+ax_a.set_xlim(min(a), L_num)
 fig_a.suptitle(f"Left boundary over time with $\\beta_E={beta_E_num}$")
-fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallvt.png", bbox_inches="tight")
+fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
