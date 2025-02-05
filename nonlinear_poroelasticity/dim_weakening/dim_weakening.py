@@ -345,6 +345,10 @@ for n in range(N_time):
     dE_dt = (E.g - E.g_old) / delta_t
     dc_dt = (c.g - c.g_old) / delta_t
 
+    # Find intermediate expressions for the solid and fluid velocities
+    v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
+    v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
+
     # This is so that we can revert back to the old 'w' at every iteration.
     # w_old will now store the value of 'w' at the previous timestep as a
     # reference
@@ -362,10 +366,6 @@ for n in range(N_time):
         """
         Define the weak form
         """
-
-        # Find intermediate expressions for the solid and fluid velocities
-        v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
-        v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
 
         # Weak form for the phi equation
         Fun_phi = ((dphi_dt - a_dot_n_j * phi_f.g / (L - a_n)) * phi_f.v * dx +
