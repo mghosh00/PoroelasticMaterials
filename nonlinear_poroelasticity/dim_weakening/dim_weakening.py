@@ -39,6 +39,7 @@ import pandas as pd
 
 from quantity import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
+mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
 
 """
@@ -65,7 +66,7 @@ mu = Constant(1)
 k_0 = Constant(1)
 
 # Fixed concentration on the left
-c_star = Constant(1.0)
+c_star = Constant(2.0)
 
 x = Expression('x[0]', degree=1)
 
@@ -76,8 +77,7 @@ D_m_num = float(D_m.values()[0])
 
 # Setting up the moving boundary
 a = [0.0]
-
-a_dot = [1e-4]
+a_dot = [0.0]
 
 """
 Computational parameters
@@ -87,7 +87,7 @@ Computational parameters
 delta_t = 1e-2
 
 # Number of time steps
-N_time = 17
+N_time = 100
 
 # Number of mesh points
 N_x = 40
@@ -96,8 +96,8 @@ N_x = 40
 vt_0 = '0.0'
 vt_small = f'{a_dot[0]}'
 vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
-vt_cts_small = f'{a_dot[0]} * t'
-vt = Expression(vt_small,
+vt_cts_small = '0.01 * t'
+vt = Expression(vt_0,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -328,7 +328,7 @@ Quantity.plot_quantities(quantities, norm, 0.0, saving, file_names)
 """
 Loop over time steps and solve
 """
-a_dot_tol = 1e-6
+a_dot_tol = 1e-5
 for n in range(N_time):
     print("Time:", n * delta_t)
     a_n = float(a[n])
@@ -348,11 +348,6 @@ for n in range(N_time):
     # Find intermediate expressions for the solid and fluid velocities
     v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
     v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
-
-    # This is so that we can revert back to the old 'w' at every iteration.
-    # w_old will now store the value of 'w' at the previous timestep as a
-    # reference
-    w_old.assign(w)
 
     # We will solve for the same timestep a number of iterations until
     # the value of a_dot does not change by a certain amount (determined
@@ -405,15 +400,16 @@ for n in range(N_time):
         # Check to see if the value of da/dt has converged below a certain tolerance
         if abs(a_dot_n_j_plus_1 - a_dot_n_j) < a_dot_tol:
             a_dot_converged = True
+            print(a_n_plus_1_list)
             print(a_dot_n_list)
             a.append(a_n_plus_1_j)
             a_dot.append(a_dot_n_j_plus_1)
 
         else:
-            # This is so that we can revert back to the old 'w' at the next iteration
-            # In this way, we keep our old phi, c and E
-            w.assign(w_old)
             j += 1
+            w.assign(w_old)
+            print(a_n_plus_1_list)
+            print(a_dot_n_list)
 
     w_old.assign(w)
     # solve for the displacement
@@ -452,15 +448,17 @@ fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=u_s.cmap),
              label='$t$', ax=u_s.ax)
 u_s.label_plot(x_label="$\\xi$", title="Displacement")
 
+# Remove titles
+for ax in axs:
+    ax.set_title("")
+
 # Save figure
-fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$, $D_m={D_m_num}$")
-fig.savefig(f"plots/initial/itersolve/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/itersolve/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_v_0.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
 ax_a.plot(np.array(a), np.linspace(0, N_time * delta_t, N_time + 1), color='darkviolet')
 ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
-ax_a.set_xlim(min(a), L_num)
-fig_a.suptitle(f"Left boundary over time with $\\beta_E={beta_E_num}$")
-fig_a.savefig(f"plots/initial/itersolve/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
+ax_a.set_xlim(min(a), max(a))
+fig_a.savefig(f"plots/initial/itersolve/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_v_0.png", bbox_inches="tight")
