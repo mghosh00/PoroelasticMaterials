@@ -99,7 +99,7 @@ vt_0 = '0.0'
 vt_small = f'{a_dot[0]}'
 vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
 vt_cts_small = f'{a_dot[0]} * t'
-vt = Expression(vt_cts_small,
+vt = Expression(vt_small,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -270,6 +270,24 @@ def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
     return a_t
 
 
+def get_a_dot(a_n_plus_1: float, old_a_list: list, t: float, dt: float):
+    """Calculates the value of da/dt given values of a at different timesteps.
+    Following numpy's np.gradient method, we use a boundary gradient for the
+    first timestep and central differences at all other timesteps.
+
+    :param a_n_plus_1: The value of a at the next timestep.
+    :param old_a_list: All previous values of a.
+    :param t: The current timestep.
+    :param dt: The size of a timestep.
+    :return: The value of da/dt at time t.
+    """
+    if t == 0:
+        da_dt = (a_n_plus_1 - old_a_list[0]) / dt
+    else:
+        da_dt = (a_n_plus_1 - old_a_list[-2]) / (2 * dt)
+    return da_dt
+
+
 # interpolate([phi_f0, Constant(1), Constant(1)], V)
 # u.interpolate([phi_f0, Constant(1), Constant(1)])
 # phi_f.bind_ic(phi_f0)
@@ -312,60 +330,93 @@ Quantity.plot_quantities(quantities, norm, 0.0, saving, file_names)
 """
 Loop over time steps and solve
 """
+a_dot_tol = 1e-6
 for n in range(N_time):
-    print("Time: ", n * delta_t)
-    a_dot_n = float(a_dot[n])
+    print("Time:", n * delta_t)
     a_n = float(a[n])
+    a_n_plus_1_list = []
+    a_dot_n_list = [float(a_dot[n])]
 
-    # Update some variables
-    k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
-    sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
-    vt.t = n * delta_t
-
-    """
-    Define the weak form
-    """
     # define the time derivatives
     dphi_dt = (phi_f.g - phi_f.g_old) / delta_t
     dE_dt = (E.g - E.g_old) / delta_t
     dc_dt = (c.g - c.g_old) / delta_t
 
-    # Find intermediate expressions for the solid and fluid velocities
-    v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
-    v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
+    # This is so that we can revert back to the old 'w' at every iteration.
+    # w_old will now store the value of 'w' at the previous timestep as a
+    # reference
+    w_old.assign(w)
 
-    # Weak form for the phi equation
-    Fun_phi = ((dphi_dt - a_dot_n * phi_f.g / (L - a_n)) * phi_f.v * dx +
-               ((1 / (L - a_n))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) -
-               (1 / (L - a_n)) * phi_f.g * (vt - (1 - xi) * a_dot_n)) * phi_f.v.dx(0) * dx +
-               (vt - (1 - xi) * a_dot_n) * phi_f.v / (L - a_n) * ds)
+    # We will solve for the same timestep a number of iterations until
+    # the value of a_dot does not change by a certain amount (determined
+    # by a_dot_tol)
+    a_dot_converged = False
+    j = 0
+    while not a_dot_converged:
+        print("Iteration:", j)
+        a_dot_n_j = a_dot_n_list[j]
+        # Update some variables
+        k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
+        sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
+        vt.t = n * delta_t
 
-    # Weak form for the E equation
-    # Fun_E = (dE_dt + beta_E * c.g * E.g
-    #          + (v_s - (1 - xi) * a_dot_n) / (L - a_n) * E.g.dx(0)) * E.v * dx
-    Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
+        """
+        Define the weak form
+        """
 
-    # Weak form for the c equation
-    Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + a_dot_n * c.g *
-              ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a_n)) * c.v * dx +
-             phi_f.g / (L - a_n) * (D_m * c.g.dx(0) / (L - a_n) - v_f * c.g) * c.v.dx(0) * dx)
+        # Find intermediate expressions for the solid and fluid velocities
+        v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.g))
+        v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a_n)
 
-    # solve the joint weak form
-    Fun = Fun_phi + Fun_E + Fun_c
-    # Define the Jacobian, problem and solver
-    jacobian = derivative(Fun, w)
-    problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
-    solver = NonlinearVariationalSolver(problem)
-    # solver.parameters['nonlinear_solver'] = 'newton'
-    # sprms = solver.parameters['newton_solver']
-    # sprms['maximum_iterations'] = 100
+        # Weak form for the phi equation
+        Fun_phi = ((dphi_dt - a_dot_n_j * phi_f.g / (L - a_n)) * phi_f.v * dx +
+                   ((1 / (L - a_n))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) -
+                   (1 / (L - a_n)) * phi_f.g * (vt - (1 - xi) * a_dot_n_j)) * phi_f.v.dx(0) * dx +
+                   (vt - (1 - xi) * a_dot_n_j) * phi_f.v / (L - a_n) * ds)
 
-    # Solve the problem
-    solver.solve()
-    # solve(Fun_phi + Fun_E + Fun_c == 0, u, bcs)
+        # Weak form for the E equation
+        # Fun_E = (dE_dt + beta_E * c.g * E.g
+        #          + (v_s - (1 - xi) * a_dot_n) / (L - a_n) * E.g.dx(0)) * E.v * dx
+        Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
 
-    phi_f.f, E.f, c.f = w.split(deepcopy=True)
+        # Weak form for the c equation
+        Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + a_dot_n_j * c.g *
+                  ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a_n)) * c.v * dx +
+                 phi_f.g / (L - a_n) * (D_m * c.g.dx(0) / (L - a_n) - v_f * c.g) * c.v.dx(0) * dx)
 
+        # solve the joint weak form
+        Fun = Fun_phi + Fun_E + Fun_c
+        # Define the Jacobian, problem and solver
+        jacobian = derivative(Fun, w)
+        problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
+        solver = NonlinearVariationalSolver(problem)
+
+        # Solve the problem
+        solver.solve()
+        # solve(Fun_phi + Fun_E + Fun_c == 0, u, bcs)
+
+        phi_f.f, E.f, c.f = w.split(deepcopy=True)
+
+        # Update the value of the left boundary and velocity for the current iteration
+        a_n_plus_1_j = get_a(mesh, phi_f.f, L_num, phi_f0_num)
+        a_n_plus_1_list.append(a_n_plus_1_j)
+        a_dot_n_j_plus_1 = get_a_dot(a_n_plus_1_j, a, n * delta_t, delta_t)
+        a_dot_n_list.append(a_dot_n_j_plus_1)
+
+        # Check to see if the value of da/dt has converged below a certain tolerance
+        if abs(a_dot_n_j_plus_1 - a_dot_n_j) < a_dot_tol:
+            a_dot_converged = True
+            print(a_dot_n_list)
+            a.append(a_n_plus_1_j)
+            a_dot.append(a_dot_n_j_plus_1)
+
+        else:
+            # This is so that we can revert back to the old 'w' at the next iteration
+            # In this way, we keep our old phi, c and E
+            w.assign(w_old)
+            j += 1
+
+    w_old.assign(w)
     # solve for the displacement
     Fun_us = ((u_s.g.dx(0) * u_s.v -
                (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a_n)) * u_s.v) * dx)
@@ -373,14 +424,6 @@ for n in range(N_time):
 
     # plot at the current timepoint
     Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
-
-    w_old.assign(w)
-    # Update the value of the left boundary
-    a.append(get_a(mesh, phi_f.f, L_num, phi_f0_num))
-
-    # Here, we use single differences
-    a_dot_new = a[n + 1] - a[n] / delta_t
-    a_dot.append(a_dot_new)
 
 """
 Colourbars
@@ -412,7 +455,7 @@ u_s.label_plot(x_label="$\\xi$", title="Displacement")
 
 # Save figure
 fig.suptitle(f"FEniCS solution with $\\beta_E={beta_E_num}$, $D_m={D_m_num}$")
-fig.savefig(f"plots/initial/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/itersolve/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -421,4 +464,4 @@ ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.set_xlim(min(a), L_num)
 fig_a.suptitle(f"Left boundary over time with $\\beta_E={beta_E_num}$")
-fig_a.savefig(f"plots/initial/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
+fig_a.savefig(f"plots/initial/itersolve/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_smallt.png", bbox_inches="tight")
