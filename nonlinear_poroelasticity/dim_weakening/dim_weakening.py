@@ -77,8 +77,6 @@ D_m_num = float(D_m.values()[0])
 # Setting up the moving boundary
 a = [0.0]
 
-# IMPORTANT!! The below line is only true when the system starts off with no
-# deformation (which is the case when we have prescribed v = 0 initially)
 a_dot = [1e-4]
 
 """
@@ -86,7 +84,7 @@ Computational parameters
 """
 
 # Size of time step
-delta_t = 1e-3
+delta_t = 1e-2
 
 # Number of time steps
 N_time = 17
@@ -337,6 +335,11 @@ for n in range(N_time):
     a_n_plus_1_list = []
     a_dot_n_list = [float(a_dot[n])]
 
+    # Update some variables
+    k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
+    sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
+    vt.t = n * delta_t
+
     # define the time derivatives
     dphi_dt = (phi_f.g - phi_f.g_old) / delta_t
     dE_dt = (E.g - E.g_old) / delta_t
@@ -355,10 +358,6 @@ for n in range(N_time):
     while not a_dot_converged:
         print("Iteration:", j)
         a_dot_n_j = a_dot_n_list[j]
-        # Update some variables
-        k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
-        sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
-        vt.t = n * delta_t
 
         """
         Define the weak form
