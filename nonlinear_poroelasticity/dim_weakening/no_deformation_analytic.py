@@ -1,11 +1,11 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+
+from quantity import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 30})
 plt.rcParams['text.usetex'] = True
-
-from quantity import Quantity
 
 # Setting up domain, parameters, and max index of sum
 x_arr = np.linspace(0, 1, 40)
