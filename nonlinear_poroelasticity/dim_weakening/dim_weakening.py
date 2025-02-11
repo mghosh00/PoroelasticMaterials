@@ -290,12 +290,6 @@ def get_a_dot(a_n_plus_1: float, old_a_list: list, t: float, dt: float):
     return da_dt
 
 
-# interpolate([phi_f0, Constant(1), Constant(1)], V)
-# u.interpolate([phi_f0, Constant(1), Constant(1)])
-# phi_f.bind_ic(phi_f0)
-# c.bind_ic(Constant(1))
-# E.bind_ic(Constant(1))
-
 # Define our fluid and solid velocities on the right
 # qt = 0
 # _, v_s0_array = get_vs_R(mesh, phi_f1_R.f, x_c[0], phi_f0, qt, D_phi)
@@ -312,7 +306,6 @@ quantities = [phi_f, E, c, u_s]
 Set up figure for the overall plot
 """
 fig, axs = plt.subplots(nrows=4, ncols=1, figsize=(4, 40/3), sharex=True)
-# fig.subplots_adjust(bottom=0.5)
 Quantity.set_axs(quantities, axs)
 norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
 
