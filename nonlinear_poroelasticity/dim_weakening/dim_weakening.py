@@ -89,14 +89,14 @@ delta_t = 1e-2
 N_time = 100
 
 # Number of mesh points
-N_x = 40
+N_x = 100
 
 # Imposed phase-averaged velocity
 vt_0 = '0.0'
-vt_small = '1e-1'
-vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
+vt_small = '1e-2'
+vt_step = 't < delta_t * N_time / 2 ? 0.0 : 0.2'
 vt_cts_small = '0.01 * t'
-vt = Expression(vt_cts_small,
+vt = Expression(vt_small,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -109,7 +109,7 @@ mesh = IntervalMesh(N_x, 0, 1)
 xi = SpatialCoordinate(mesh)[0]
 
 # Set up function space
-P1 = FiniteElement("Lagrange", interval, 1)
+P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
 P0 = FiniteElement("R", mesh.ufl_cell(), 0)
 
 # For vars phi_f, E, c, a
@@ -328,6 +328,9 @@ dE_dt = (E.g - E.g_old) / delta_t
 dc_dt = (c.g - c.g_old) / delta_t
 da_dt = (a - a_old) / delta_t
 
+k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
+sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
+
 # Find intermediate expressions for the solid and fluid velocities
 v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a) * (1 - phi_f.g))
 v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a)
@@ -338,7 +341,7 @@ Define the weak form
 
 # Weak form for the phi equation
 Fun_phi = ((dphi_dt - da_dt * phi_f.g / (L - a)) * phi_f.v * dx +
-           ((1 / (L - a))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) -
+           ((1 / (L - a))**2 * phi_f.g * k_e.g * (E.g * phi_f.g).dx(0) -
             (1 / (L - a)) * phi_f.g * (vt - (1 - xi) * da_dt)) * phi_f.v.dx(0) * dx +
            (vt - (1 - xi) * da_dt) * phi_f.v / (L - a) * ds)
 
@@ -355,7 +358,16 @@ Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + da_dt * c.g *
 # Weak form for the moving boundary
 Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a / L)) * v_a * dx
 
+# Weak form for the displacement
+Fun_us = ((u_s.g.dx(0) * u_s.v -
+           (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx)
+# Fun_us = ((u_s.g * u_s.v.dx(0) +
+#            (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx +
+#           a * u_s.v * (1 - xi) * ds)
+
 Fun = Fun_phi + Fun_E + Fun_c + Fun_a
+
+
 # Define the Jacobian, problem and solver
 jacobian = derivative(Fun, w)
 problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
@@ -375,8 +387,6 @@ for n in range(N_time):
     # a_dot_n = a_dot_n_list[0]
 
     # Update some variables
-    k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
-    sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
     vt.t = n * delta_t
 
     # Solve
@@ -426,8 +436,6 @@ for n in range(N_time):
 
     w_old.assign(w)
     # solve for the displacement
-    Fun_us = ((u_s.g.dx(0) * u_s.v -
-               (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx)
     u_s.solve(Fun_us)
 
     # plot at the current timepoint
@@ -466,7 +474,7 @@ for ax in axs:
     ax.set_title("")
 
 # Save figure
-fig.savefig(f"plots/initial/coupling_a/fenics_beta_E_{beta_E_num}_D_m_{D_m_num}_v_cts.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/coupling_a/time_traces_v_0_01_.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -474,5 +482,5 @@ ax_a.plot(np.array(a_list), np.linspace(0, N_time * delta_t, N_time + 1), color=
 ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"plots/initial/coupling_a/left_bdry_beta_E_{beta_E_num}_D_m_{D_m_num}_v_cts.png",
+fig_a.savefig(f"plots/initial/coupling_a/left_bdry_v_0_01_.png",
               bbox_inches="tight")
