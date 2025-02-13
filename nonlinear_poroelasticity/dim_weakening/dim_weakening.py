@@ -76,24 +76,23 @@ D_m_num = float(D_m.values()[0])
 
 # Setting up the moving boundary
 a_list = [0.0]
-# a_dot = [1e-1]
 
 """
 Computational parameters
 """
 
 # Size of time step
-delta_t = 1e-2
+delta_t = 1e-3
 
 # Number of time steps
-N_time = 100
+N_time = 800
 
 # Number of mesh points
 N_x = 100
 
 # Imposed phase-averaged velocity
 vt_0 = '0.0'
-vt_small = '1e-2'
+vt_small = '2e-1'
 vt_step = 't < delta_t * N_time / 2 ? 0.0 : 0.2'
 vt_cts_small = '0.01 * t'
 vt = Expression(vt_small,
@@ -112,8 +111,8 @@ xi = SpatialCoordinate(mesh)[0]
 P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
 P0 = FiniteElement("R", mesh.ufl_cell(), 0)
 
-# For vars phi_f, E, c, a
-element = MixedElement([P1, P1, P1, P0])
+# For vars phi_f, E, c, u_s, a
+element = MixedElement([P1, P1, P1, P1, P0])
 V = FunctionSpace(mesh, element)
 
 """
@@ -157,23 +156,25 @@ Define the solutions phi_f, E and c
 phi_f = Quantity("$\\phi_{f}$", "Blues", 0, mesh)
 E = Quantity("$E$", "Purples", 1, mesh)
 c = Quantity("$c$", "Reds", 2, mesh)
+u_s = Quantity("$u_s$", "Greens", 3, mesh)
 
 # Set up the functions from the joint space
-v_phi, v_E, v_c, v_a = TestFunctions(V)
+v_phi, v_E, v_c, v_us, v_a = TestFunctions(V)
 
 # Define the initial conditions
-w_0 = Expression(('phi_f0', '1', '1', 'a_0'),
+w_0 = Expression(('phi_f0', '1', '1', '0', 'a_0'),
                  degree=1, phi_f0=phi_f0, a_0=a_list[0])
 w_old = project(w_0, V)
 
 
 w = Function(V)
-w_phi, w_E, w_c, a = split(w)
-phi_f.f, E.f, c.f, a_f = w_old.split(deepcopy=True)
-phi_old, E_old, c_old, a_old = split(w_old)
+w_phi, w_E, w_c, w_us, a = split(w)
+phi_f.f, E.f, c.f, u_s.f, a_f = w_old.split(deepcopy=True)
+phi_old, E_old, c_old, u_s_old, a_old = split(w_old)
 phi_f.set_sym_functions(w_phi, v_phi, phi_old)
 E.set_sym_functions(w_E, v_E, E_old)
 c.set_sym_functions(w_c, v_c, c_old)
+u_s.set_sym_functions(w_us, v_us, u_s_old)
 
 # Define also the known functions k_{e} and \\sigma_{e} (of porosity)
 
@@ -207,9 +208,8 @@ def compute_sigma_e(_phi_f, _phi_f0, _nu):
     return (term1 + term2 + term3) / denominator
 
 
-k_e = Quantity("$k_{e}(\\phi_{f})$", "GnBu", 3, mesh)
-sigma_e = Quantity("$\\sigma_{e}(\\phi_{f})$", "YlOrBr", 4, mesh)
-u_s = Quantity("$u_s$", "Greens", 5, mesh)
+k_e = Quantity("$k_{e}(\\phi_{f})$", "GnBu", 4, mesh)
+sigma_e = Quantity("$\\sigma_{e}(\\phi_{f})$", "YlOrBr", 5, mesh)
 
 """
 Define the Dirichlet boundary conditions
@@ -233,11 +233,12 @@ def right(xi):
 # Define the boundary conditions at the left and right
 bc_left_c = DirichletBC(V.sub(2), c_star, left)
 c.add_bc(bc_left_c)
-bcs = [bc_left_c]
+# bcs = [bc_left_c]
 # bcs = []
 
-bc_right_us = DirichletBC(u_s.V, 0, right)
+bc_right_us = DirichletBC(V.sub(3), 0, right)
 u_s.add_bc(bc_right_us)
+bcs = [bc_left_c, bc_right_us]
 
 
 def fenics_to_numpy(_mesh: Mesh, f: Function):
@@ -253,41 +254,6 @@ def fenics_to_numpy(_mesh: Mesh, f: Function):
     f_array = (f if isinstance(f, np.ndarray)
                else f.compute_vertex_values(_mesh))
     return mesh_array, f_array
-
-
-def get_a(_mesh: Mesh, _phi_f: Function, _L: Constant, _phi_f0: Constant):
-    """Calculates the left moving boundary given a porosity profile phi_f as:
-    a(t) = L - \\frac{1 - \\phi_{f,0}}{1 - \\int_{0}^{1}\\phi_{f}(\\xi, t)d\\xi}.
-    This function uses scipy's simpson function to find the indefinite integral.
-
-    :param _mesh: The mesh for the domain.
-    :param _phi_f: The current porosity profile in (xi, t) coordinates.
-    :param _L: The length of the domain.
-    :param _phi_f0: The constant initial porosity.
-    :return: The current position of the left boundary.
-    """
-    integral_of_phi = assemble(_phi_f * dx)
-    print("Int phi:", integral_of_phi)
-    a_t = _L * (1 - (1 - _phi_f0) / (1 - integral_of_phi))
-    return a_t
-
-
-def get_a_dot(a_n_plus_1: float, old_a_list: list, t: float, dt: float):
-    """Calculates the value of da/dt given values of a at different timesteps.
-    Following numpy's np.gradient method, we use a boundary gradient for the
-    first timestep and central differences at all other timesteps.
-
-    :param a_n_plus_1: The value of a at the next timestep.
-    :param old_a_list: All previous values of a.
-    :param t: The current timestep.
-    :param dt: The size of a timestep.
-    :return: The value of da/dt at time t.
-    """
-    if t == 0:
-        da_dt = (a_n_plus_1 - old_a_list[0]) / dt
-    else:
-        da_dt = (a_n_plus_1 - old_a_list[-2]) / (2 * dt)
-    return da_dt
 
 
 # Define our fluid and solid velocities on the right
@@ -355,17 +321,17 @@ Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + da_dt * c.g *
           ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a)) * c.v * dx +
          phi_f.g / (L - a) * (D_m * c.g.dx(0) / (L - a) - v_f * c.g) * c.v.dx(0) * dx)
 
+# Weak form for the displacement
+Fun_us = ((u_s.g.dx(0) * u_s.v -
+           (phi_f.g - phi_f0) * (L - a) / (1 - phi_f0) * u_s.v) * dx)
+# Fun_us = ((u_s.g * u_s.v.dx(0) +
+#            (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx -
+#           a * u_s.v * (1 - xi) * ds)
+
 # Weak form for the moving boundary
 Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a / L)) * v_a * dx
 
-# Weak form for the displacement
-Fun_us = ((u_s.g.dx(0) * u_s.v -
-           (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx)
-# Fun_us = ((u_s.g * u_s.v.dx(0) +
-#            (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx +
-#           a * u_s.v * (1 - xi) * ds)
-
-Fun = Fun_phi + Fun_E + Fun_c + Fun_a
+Fun = Fun_phi + Fun_E + Fun_c + Fun_us + Fun_a
 
 
 # Define the Jacobian, problem and solver
@@ -376,67 +342,18 @@ solver = NonlinearVariationalSolver(problem)
 """
 Loop over time steps and solve
 """
-# a_dot_tol = 1e-3
 for n in range(N_time):
     print("Time:", n * delta_t)
-    # a_n = float(a[n])
-    # a_n_plus_1_list = []
-    # a_dot_n_list = [float(a_dot[n])]
-    # a_dot_n = Expression('a_dot_val',
-    #                      degree=1, a_dot_val=a_dot_n_list[0])
-    # a_dot_n = a_dot_n_list[0]
 
     # Update some variables
     vt.t = n * delta_t
 
     # Solve
     solver.solve()
-    phi_f.f, E.f, c.f, a_f = w.split(deepcopy=True)
+    phi_f.f, E.f, c.f, u_s.f, a_f = w.split(deepcopy=True)
     a_list.append(a_f(0.0))
 
-    # # We will solve for the same timestep a number of iterations until
-    # # the value of a_dot does not change by a certain amount (determined
-    # # by a_dot_tol)
-    # a_dot_converged = False
-    # j = 0
-    # while not a_dot_converged:
-    #     print("Iteration:", j)
-    #     a_dot_n_j = a_dot_n_list[j]
-    #     a_dot_n.a_dot_val = a_dot_n_j
-    #
-    #     # Solve the problem
-    #     solver.solve()
-    #     # solve(Fun_phi + Fun_E + Fun_c == 0, u, bcs)
-    #
-    #     phi_f.f, E.f, c.f = w.split(deepcopy=True)
-    #     v_s_fun = project(vt + phi_f.f * k_e.g * (E.f * sigma_e.g).dx(0) / ((L - a_n) * (1 - phi_f.f)),
-    #                       FunctionSpace(mesh, "CG", 1))
-    #     _, v_s_np = fenics_to_numpy(mesh, v_s_fun)
-    #     a_dot_n_j_plus_1 = v_s_np[0]
-    #
-    #     # Update the value of the left boundary and velocity for the current iteration
-    #     a_n_plus_1_j = get_a(mesh, phi_f.f, L_num, phi_f0_num)
-    #     a_n_plus_1_list.append(a_n_plus_1_j)
-    #     # a_dot_n_j_plus_1 = get_a_dot(a_n_plus_1_j, a, n * delta_t, delta_t)
-    #     a_dot_n_list.append(a_dot_n_j_plus_1)
-    #
-    #     # Check to see if the value of da/dt has converged below a certain tolerance
-    #     if abs(a_dot_n_j_plus_1 - a_dot_n_j) < a_dot_tol:
-    #         a_dot_converged = True
-    #         print("Left boundary:", a_n_plus_1_list)
-    #         print("Speed of boundary:", a_dot_n_list)
-    #         a.append(a_n_plus_1_j)
-    #         a_dot.append(a_dot_n_j_plus_1)
-    #
-    #     else:
-    #         j += 1
-    #         w.assign(w_old)
-    #         print(a_n_plus_1_list)
-    #         print(a_dot_n_list)
-
     w_old.assign(w)
-    # solve for the displacement
-    u_s.solve(Fun_us)
 
     # plot at the current timepoint
     Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
@@ -474,7 +391,7 @@ for ax in axs:
     ax.set_title("")
 
 # Save figure
-fig.savefig(f"plots/initial/coupling_a/time_traces_v_0_01_.png", bbox_inches="tight")
+fig.savefig(f"plots/initial/coupling_a/time_traces_v_0_2.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -482,5 +399,5 @@ ax_a.plot(np.array(a_list), np.linspace(0, N_time * delta_t, N_time + 1), color=
 ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"plots/initial/coupling_a/left_bdry_v_0_01_.png",
+fig_a.savefig(f"plots/initial/coupling_a/left_bdry_v_0_2.png",
               bbox_inches="tight")
