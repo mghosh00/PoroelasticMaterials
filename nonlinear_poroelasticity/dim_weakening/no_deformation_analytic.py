@@ -3,6 +3,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 from quantity import Quantity
+mpl.rcParams.update(mpl.rcParamsDefault)
+mpl.rcParams.update({'font.size': 30})
+plt.rcParams['text.usetex'] = True
 
 # Setting up domain, parameters, and max index of sum
 x_arr = np.linspace(0, 1, 40)
@@ -45,7 +48,7 @@ for t in t_arr:
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=c.cmap),
              orientation='vertical',
              label='$t$', ax=c.ax)
-c.label_plot(x_label="$x$", title="Solute concentration")
+c.label_plot(x_label="$x$", title="")
 
 # Saving the figure
-fig.savefig("plots/analytic/no_deformation_c.png")
+fig.savefig("plots/analytic/no_deformation_c.png", bbox_inches="tight")
