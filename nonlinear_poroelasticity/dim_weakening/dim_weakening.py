@@ -20,7 +20,6 @@ with boundary conditions (on a domain [a(t), L] with left moving boundary):
 
         v_s = \\dot{a}(t) at x = a(t), v_s = 0 at x = L,
         c = c^{*} at x = a(t), \\mathcal{D}_{m}\\frac{\\p c}{\\p x} - cv_{f} = 0 at x = a(t),
-        t.b.d.
 
 The moving boundary can be determined by the following implicit relation:
 
@@ -69,13 +68,13 @@ c_star = Constant(1.0)
 
 x = Expression('x[0]', degree=1)
 
-L_num = float(L.values()[0])
-nu_num = float(nu.values()[0])
-mu_num = float(mu.values()[0])
-k0_num = float(k_0.values()[0])
-phi_f0_num = float(phi_f0.values()[0])
-beta_E_num = float(beta_E.values()[0])
-D_m_num = float(D_m.values()[0])
+
+def nums(*constants: Constant):
+    return tuple([float(constant.values()[0]) for constant in constants])
+
+
+L_num, nu_num, mu_num, k0_num = nums(L, nu, mu, k_0)
+phi_f0_num, beta_E_num, D_m_num = nums(phi_f0, beta_E, D_m)
 
 # Setting up the moving boundary
 a_list = [0.0]

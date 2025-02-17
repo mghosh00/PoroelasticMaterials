@@ -1,12 +1,12 @@
 """
-This Python code solves the following nonlinear general system for the porosity,
-Young's modulus and solute concentration
+This Python code solves the following nonlinear, nondimensional general system for the
+porosity, Young's modulus and solute concentration
 
-        \\frac{D^{f}\\phi_{f}}{Dt} = \\phi_{f}\\frac{\\p}{\\p x}\\left[
-        k_{e}(\\phi_{f})\\frac{\\p}{\\p x}\\left(E\\sigma_{e}(\\phi_{f})\\right)\\right],
-        \\frac{D^{s}E}{Dt} = -\\beta_{E}cE,
-        \\phi_{f}\\frac{D^{f}c}{Dt} = \\frac{\\p}{\\p x}\\left(
-        \\mathcal{D}_{m}\\phi_{f}\\frac{\\p c}{\\p x}\\right),
+        \\frac{t_{\\phi}}{[t]}\\frac{D^{f}\\phi_{f}}{Dt} = \\phi_{f}\\frac{\\p}{\\p x}
+        \\left[k_{e}(\\phi_{f})\\frac{\\p}{\\p x}\\left(E\\sigma_{e}(\\phi_{f})\\right)\\right],
+        \\frac{t_{E}}{[t]}\\frac{D^{s}E}{Dt} = -cE,
+        \\frac{t_{c}}{[t]}\\phi_{f}\\frac{D^{f}c}{Dt} = \\frac{\\p}{\\p x}\\left(
+        \\phi_{f}\\frac{\\p c}{\\p x}\\right),
 
 where the operators D^{f} and D^{s} are the material derivatives for the fluid and solid
 fractions respectively. These operators are dependent on E, k_{e}, \\sigma_{e} (both given
@@ -16,18 +16,24 @@ The initial conditions are at t = 0:
 
         \\phi_{f} = \\phi_{f,0} (= const.), E = E_{0}(x), c = c_{0}(x),
 
-with boundary conditions (on a domain [a(t), L] with left moving boundary):
+with boundary conditions (on a domain [a(t), 1] with left moving boundary):
 
-        v_s = \\dot{a}(t) at x = a(t), v_s = 0 at x = L,
-        c = c^{*} at x = a(t), \\mathcal{D}_{m}\\frac{\\p c}{\\p x} - cv_{f} = 0 at x = a(t),
-        t.b.d.
+        v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = 1,
+        c = 1 at x = a(t), \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}cv_{f} = 0 at x = 1,
 
 The moving boundary can be determined by the following implicit relation:
 
-        a(t) = \\phi_{f,0}L - \\int_{a(t)}^{L}\\phi_{f}(x, t)dx,
+        a(t) = \\phi_{f,0} - \\int_{a(t)}^{1}\\phi_{f}(x, t)dx,
 
 given a known profile for \\phi_{f} at the previous timestep (in the numerical scheme).
 We will also change coordinates onto a fixed domain (see details below).
+
+The timescales are:
+
+t_{\\phi} = \\frac{\\mu L^{2}}{k_{0}E^{*}},
+t_{v_{i}} = \\frac{L}{v_{i}^{*}}, (v_{i} = v, v_{f} or v_{s}),
+t_{E} = \\frac{1}{\\beta_{E}c^{*}},
+t_{c} = \\frac{L^{2}}{\\mathcal{D}_{m}}.
 """
 
 from fenics import *
@@ -45,6 +51,9 @@ plt.rcParams['text.usetex'] = True
 Define model parameters
 """
 
+# Timescale, [t]
+t_sc = Constant(1)
+
 # Length of domain, L
 L = Constant(1)
 
@@ -52,7 +61,7 @@ L = Constant(1)
 phi_f0 = Constant(0.5)
 
 # Degradation parameter
-beta_E = Constant(1)
+beta_E = Constant(0.001)
 
 # Diffusive parameter for the solute concentration
 D_m = Constant(0.5)
@@ -64,18 +73,32 @@ mu = Constant(1)
 # Permeability scale
 k_0 = Constant(1)
 
-# Fixed concentration on the left
+# Solute concentration, Young's modulus and velocity scales
 c_star = Constant(1.0)
+E_star = Constant(1.0)
+v_star = Constant(1.0)
+v_f_star = Constant(1.0)
+v_s_star = Constant(1.0)
+
+# Timescales (only parameters other than nu and phi_f0 in the equations)
+t_phi = (mu * L ** 2) / (k_0 * E_star)
+t_v = L / v_star
+t_v_f = L / v_f_star
+t_v_s = L / v_s_star
+t_E = 1 / (beta_E * c_star)
+t_c = L ** 2 / D_m
 
 x = Expression('x[0]', degree=1)
 
-L_num = float(L.values()[0])
-nu_num = float(nu.values()[0])
-mu_num = float(mu.values()[0])
-k0_num = float(k_0.values()[0])
-phi_f0_num = float(phi_f0.values()[0])
-beta_E_num = float(beta_E.values()[0])
-D_m_num = float(D_m.values()[0])
+
+def nums(*constants: Constant):
+    return tuple([constant(0.0) for constant in constants])
+
+
+t_sc_num, phi_f0_num, nu_num = nums(t_sc, phi_f0, nu)
+t_v_num, t_v_f_num, t_v_s_num = nums(t_v, t_v_f, t_v_s)
+t_phi_num, t_E_num, t_c_num = nums(t_phi, t_E, t_c)
+
 
 # Setting up the moving boundary
 a_list = [0.0]
@@ -88,17 +111,17 @@ Computational parameters
 delta_t = 1e-2
 
 # Number of time steps
-N_time = 100
+N_time = 500
 
 # Number of mesh points
 N_x = 100
 
 # Imposed phase-averaged velocity
 vt_0 = '0.0'
-vt_small = '1e-2'
-vt_step = 't < delta_t * N_time / 2 ? 0.0 : 0.1'
-vt_cts_small = '0.01 * t'
-vt = Expression(vt_small,
+vt_const = '1.0'
+vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
+vt_cts = '1.0 * t'
+vt = Expression(vt_const,
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -126,7 +149,7 @@ Function to change spatial coordinates and get to the correct mesh.
 
 def xi_t_to_x_t(f: np.array, a: np.array):
     """Change the quantity from (xi, t) coordinates to (x, t) where
-    \\xi = 1 - \\frac{L - x}{L - a(t)}. We also fit onto the new mesh, which
+    \\xi = 1 - \\frac{1 - x}{1 - a(t)}. We also fit onto the new mesh, which
     will involve some interpolation.
 
     :param f: Some quantity in (xi, t) coordinates (np array).
@@ -183,17 +206,15 @@ u_s.set_sym_functions(w_us, v_us, u_s_old)
 # Define also the known functions k_{e} and \\sigma_{e} (of porosity)
 
 
-def compute_k_e(_phi_f, _phi_f0, _k_0, _mu):
+def compute_k_e(_phi_f, _phi_f0):
     """Computes k_e as a function of the porosity.
 
     :param _phi_f: The porosity.
     :param _phi_f0: The initial porosity.
-    :param _k_0: The permeability scale.
-    :param _mu: The viscosity.
     :return: The effective permeability.
     """
-    numerator = _k_0 * (1 - _phi_f0) * (_phi_f ** 2)
-    denominator = _mu * (_phi_f0 ** 3) * (1 - _phi_f)
+    numerator = (1 - _phi_f0) * (_phi_f ** 2)
+    denominator = (_phi_f0 ** 3) * (1 - _phi_f)
     return numerator / denominator
 
 
@@ -235,7 +256,7 @@ def right(xi):
 
 
 # Define the boundary conditions at the left and right
-bc_left_c = DirichletBC(V.sub(2), c_star, left)
+bc_left_c = DirichletBC(V.sub(2), 1, left)
 c.add_bc(bc_left_c)
 # bcs = [bc_left_c]
 # bcs = []
@@ -270,18 +291,20 @@ def fenics_to_numpy(_mesh: Mesh, f: Function):
 # v_f0_R.f = v_f0_array
 
 
-def get_vs_from_E_phi(_mesh, _phi_f, _E, _a, _phi_f0, _k0, _mu, _nu, _L):
+def get_vs_from_E_phi(_mesh, _phi_f, _E, _a, _phi_f0, _nu, 
+                      _t_v, _t_vs, _t_phi):
     _, vt_arr = fenics_to_numpy(_mesh, vt)
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, E_arr = fenics_to_numpy(_mesh, _E)
-    k_e_arr = compute_k_e(phi_f_arr, _phi_f0, _k0, _mu)
+    k_e_arr = compute_k_e(phi_f_arr, _phi_f0)
     sigma_e_arr = compute_sigma_e(phi_f_arr, _phi_f0, _nu)
-    return (vt_arr +
+    return (vt_arr / _t_v +
             phi_f_arr * k_e_arr * np.gradient(E_arr * sigma_e_arr, xi_arr)
-            / ((_L - _a) * (1 - phi_f_arr)))
+            / ((1 - _a) * (1 - phi_f_arr) * _t_phi)) * _t_vs
 
 
-def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _L, _a_list):
+def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _a_list,
+                      _t_vs, _t_sc):
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, u_s_new_arr = fenics_to_numpy(_mesh, _u_s_new)
     _, u_s_old_arr = fenics_to_numpy(_mesh, _u_s_old)
@@ -289,11 +312,12 @@ def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _L, _a_list):
     dus_dxi_arr = np.gradient(u_s_new_arr, xi_arr)
     da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_t
     return ((1 - _phi_f0) / (1 - phi_f_arr) *
-            (dus_dt_arr - (1 - xi_arr) / (_L - _a_list[-1]) * da_dt_val * dus_dxi_arr))
+            (dus_dt_arr - (1 - xi_arr) / (1 - _a_list[-1]) * da_dt_val * dus_dxi_arr)
+            * _t_vs / _t_sc)
 
 
 v_s_ = Quantity("$v_{s}$", "YlOrBr", 7, mesh)
-v_s_.f = vt
+v_s_.f = vt / t_v_num * t_v_s_num
 quantities = [phi_f, E, c, u_s, v_s_]
 
 
@@ -314,7 +338,7 @@ Plot the initial curves and save all our data
 # short_quants = ["phi", "E", "c", "u_s"]
 saving = [True, True, True, True, True]
 short_quants = ["phi", "E", "c", "u_s", "v_s"]
-file_names = [f"data/initial/{q}_bM_{beta_E_num}.csv" for q in short_quants]
+file_names = [f"data/initial/{q}.csv" for q in short_quants]
 for file_name in file_names:
     pd.DataFrame().to_csv(file_name)
 
@@ -327,42 +351,43 @@ dc_dt = (c.g - c.g_old) / delta_t
 da_dt = (a - a_old) / delta_t
 dus_dt = (u_s.g - u_s.g_old) / delta_t
 
-k_e.g = compute_k_e(phi_f.g, phi_f0, k_0, mu)
+k_e.g = compute_k_e(phi_f.g, phi_f0)
 sigma_e.g = compute_sigma_e(phi_f.g, phi_f0, nu)
 
 # Find intermediate expressions for the solid and fluid velocities
-v_s = vt + phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((L - a) * (1 - phi_f.g))
-v_f = vt - k_e.g * (E.g * sigma_e.g).dx(0) / (L - a)
+v_s = t_v_s * (vt / t_v + 
+               phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / ((1 - a) * (1 - phi_f.g) * t_phi))
+v_f = t_v_f * (vt / t_v - k_e.g * (E.g * sigma_e.g).dx(0) / ((1 - a) * t_phi))
 
 """
 Define the weak form
 """
 
 # Weak form for the phi equation
-Fun_phi = ((dphi_dt - da_dt * phi_f.g / (L - a)) * phi_f.v * dx +
-           ((1 / (L - a))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) -
-            (1 / (L - a)) * phi_f.g * (vt - (1 - xi) * da_dt)) * phi_f.v.dx(0) * dx +
-           (vt - (1 - xi) * da_dt) * phi_f.v / (L - a) * ds)
+Fun_phi = ((dphi_dt / t_sc - da_dt * phi_f.g / (1 - a)) * phi_f.v * dx / t_sc +
+           ((1 / (1 - a))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / t_phi -
+            (1 / (1 - a)) * phi_f.g * (vt / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
+           (vt / t_v - (1 - xi) * da_dt / t_sc) * phi_f.v / (1 - a) * ds)
 
 # Weak form for the E equation
-Fun_E = (dE_dt + beta_E * c.g * E.g
-         + (v_s - (1 - xi) * da_dt) / (L - a) * E.g.dx(0)) * E.v * dx
+Fun_E = (dE_dt / t_sc + c.g * E.g / t_E
+         + (v_s / t_v_s - (1 - xi) * da_dt / t_sc) / (1 - a) * E.g.dx(0)) * E.v * dx
 # Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
 
 # Weak form for the c equation
 Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + da_dt * c.g *
-          ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a)) * c.v * dx +
-         phi_f.g / (L - a) * (D_m * c.g.dx(0) / (L - a) - v_f * c.g) * c.v.dx(0) * dx)
+          ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (1 - a)) / t_sc * c.v * dx +
+         phi_f.g / (1 - a) * (c.g.dx(0) / ((1 - a) * t_c) - v_f * c.g / t_v_f) * c.v.dx(0) * dx)
 
 # Weak form for the displacement
 Fun_us = ((u_s.g.dx(0) * u_s.v -
-           (phi_f.g - phi_f0) * (L - a) / (1 - phi_f0) * u_s.v) * dx)
+           (phi_f.g - phi_f0) * (1 - a) / (1 - phi_f0) * u_s.v) * dx)
 # Fun_us = ((u_s.g * u_s.v.dx(0) +
 #            (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx -
 #           a * u_s.v * (1 - xi) * ds)
 
 # Weak form for the moving boundary
-Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a / L)) * v_a * dx
+Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a)) * v_a * dx
 
 # Combining the weak forms
 Fun = Fun_phi + Fun_E + Fun_c + Fun_us + Fun_a
@@ -385,11 +410,11 @@ for n in range(N_time):
     # Solve
     solver.solve()
     phi_f.f, E.f, c.f, u_s_new, a_f = w.split(deepcopy=True)
-    v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_f(0.0), phi_f0_num,
-                               k0_num, mu_num, nu_num, L_num)
+    v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_f(0.0), phi_f0_num, nu_num,
+                               t_v_num, t_v_s_num, t_phi_num)
     a_list.append(a_f(0.0))
-    # v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num,
-    #                            L_num, a_list)
+    # v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
+    #                            t_vs_num, t_sc_num)
 
     w_old.assign(w)
 
@@ -436,7 +461,7 @@ for ax in axs:
     ax.set_title("")
 
 # Save figure
-fig.savefig(f"plots/initial/coupling_a/time_traces_v_0_01.png", bbox_inches="tight")
+fig.savefig(f"plots/nondim/testing/time_traces_v_0_01.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -447,5 +472,5 @@ ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.legend()
 # ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"plots/initial/coupling_a/left_bdry_v_0_01.png",
+fig_a.savefig(f"plots/nondim/testing/left_bdry_v_0_01.png",
               bbox_inches="tight")
