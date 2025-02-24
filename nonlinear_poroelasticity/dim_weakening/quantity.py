@@ -27,8 +27,10 @@ class Quantity:
                                                                  whole_map(np.linspace(0.3, 1.0, 100)))
         self._pos = pos
         self._mesh = mesh
+        self.mesh_fixed = None
         self._expression = expression
         self.f = None
+        self.f_fixed = None
         self.g = None
         self.create_functions_from_mesh(mesh)
         self.interpolate()
@@ -118,19 +120,35 @@ class Quantity:
         return mesh_array, f_array
 
     def plot(self, norm: mpl.colors.Normalize, time: float,
-             save_data: bool = False, file_name: str = ''):
+             save_data: bool = False, file_name: str = '',
+             fixed_domain: bool = False):
         """Plots the curve at the current timepoint (dictated by the col_val).
 
         :param norm: A normalising function for the colorscale.
         :param time: A float for the current timepoint.
         :param save_data: Whether we save the data or not.
         :param file_name: The name of our file if we save the data.
+        :param fixed_domain: Whether we plot on the fixed or transformed domain.
         """
-        mesh_array, f_array = self.fenics_to_numpy(self._mesh, self.f)
+        if fixed_domain and self.f_fixed is not None:
+            f_array = self.f_fixed
+            mesh_array = self.mesh_fixed
+        else:
+            f = self.f
+            mesh_array, f_array = self.fenics_to_numpy(self._mesh, f)
         if self.ax:
             self.ax.plot(mesh_array, f_array, color=self.cmap(norm(time)))
         if save_data:
             df = pd.read_csv(file_name, index_col=0)
+            diff = len(mesh_array) - len(df)
+            if diff > 0:
+                # In this case, the domain has expanded, so we add new
+                # rows of NaNs to the *beginning* of the dataframe.
+                nan_rows = np.empty((diff, len(df.columns)))
+                nan_rows[:] = np.nan
+                new_df = pd.DataFrame(nan_rows, columns=df.columns)
+                df = pd.concat([new_df, df], ignore_index=True)
+                df['x'] = mesh_array
             df[time] = f_array
             df.to_csv(file_name)
 
@@ -149,7 +167,7 @@ class Quantity:
     @staticmethod
     def plot_quantities(quantities, norm: mpl.colors.Normalize,
                         time: float, save_list: list[bool] = None,
-                        file_names: list[str] = None):
+                        file_names: list[str] = None, fixed_domain: bool = False):
         """Plots multiple quantities at the given time.
 
         :param quantities: The list of quantities.
@@ -157,13 +175,16 @@ class Quantity:
         :param time: The current timepoint.
         :param save_list: Whether we save (choice for each quantity).
         :param file_names: The names of our files.
+        :param fixed_domain: Whether we plot on the fixed domain or the transformed one
         """
         if save_list:
             for i, quantity in enumerate(quantities):
-                quantity.plot(norm, time, save_list[i], file_names[i])
+                quantity.plot(norm, time, save_list[i], file_names[i],
+                              fixed_domain=fixed_domain)
         else:
             for i, quantity in enumerate(quantities):
-                quantity.plot(norm, time)
+                quantity.plot(norm, time,
+                              fixed_domain=fixed_domain)
 
     def add_bc(self, bc):
         """Stores a boundary condition in the bcs list.

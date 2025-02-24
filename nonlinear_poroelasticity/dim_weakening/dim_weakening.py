@@ -28,12 +28,14 @@ The moving boundary can be determined by the following implicit relation:
 given a known profile for \\phi_{f} at the previous timestep (in the numerical scheme).
 We will also change coordinates onto a fixed domain (see details below).
 """
+import os
 
 from fenics import *
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
+import json
 
 from quantity import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
@@ -41,30 +43,38 @@ mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
 
 """
+Reading in our parameters
+"""
+trial = "dim_initial"
+v_name = "v_0"
+param_file = open(f"resources/{trial}/{v_name}/params.json")
+params = json.load(param_file)
+
+"""
 Define model parameters
 """
 
 # Length of domain, L
-L = Constant(1)
+L = Constant(params["phys"]["L"])
 
 # Initial porosity, \\phi_{f,0}
-phi_f0 = Constant(0.5)
+phi_f0 = Constant(params["ics"]["phi_f"])
 
 # Degradation parameter
-beta_E = Constant(1)
+beta_E = Constant(params["phys"]["beta_E"])
 
 # Diffusive parameter for the solute concentration
-D_m = Constant(0.5)
+D_m = Constant(params["phys"]["D_m"])
 
 # Poisson ratio and viscosity
-nu = Constant(0.3)
-mu = Constant(1)
+nu = Constant(params["phys"]["nu"])
+mu = Constant(params["phys"]["mu"])
 
 # Permeability scale
-k_0 = Constant(1)
+k_0 = Constant(params["scales"]["k"])
 
 # Fixed concentration on the left
-c_star = Constant(1.0)
+c_star = Constant(params["bcs"]["c_left"])
 
 x = Expression('x[0]', degree=1)
 
@@ -77,27 +87,27 @@ L_num, nu_num, mu_num, k0_num = nums(L, nu, mu, k_0)
 phi_f0_num, beta_E_num, D_m_num = nums(phi_f0, beta_E, D_m)
 
 # Setting up the moving boundary
-a_list = [0.0]
+a_list = [params["ics"]["a"]]
 
 """
 Computational parameters
 """
 
 # Size of time step
-delta_t = 1e-2
+delta_t = params["comp"]["delta_t"]
 
 # Number of time steps
-N_time = 100
+N_time = params["comp"]["N_time"]
 
 # Number of mesh points
-N_x = 100
+N_x = params["comp"]["N_x"]
 
 # Imposed phase-averaged velocity
 vt_0 = '0.0'
 vt_small = '1e-2'
 vt_step = 't < delta_t * N_time / 2 ? 0.0 : 0.1'
 vt_cts_small = '0.01 * t'
-vt = Expression(vt_small,
+vt = Expression(params["v"]["expr"],
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -108,7 +118,7 @@ mesh = IntervalMesh(N_x, 0, 1)
 
 # get the xi coodinates
 xi = SpatialCoordinate(mesh)[0]
-xi_arr = np.linspace(0, 1, 101)
+xi_arr = np.linspace(0, 1, N_x + 1)
 
 # Set up function space
 P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
@@ -165,7 +175,8 @@ u_s = Quantity("$u_s$", "Greens", 3, mesh)
 v_phi, v_E, v_c, v_us, v_a = TestFunctions(V)
 
 # Define the initial conditions
-w_0 = Expression(('phi_f0', '1', '1', '0', 'a_0'),
+w_0 = Expression(('phi_f0', params["ics"]["E"], params["ics"]["c"],
+                  params["ics"]["u_s"], 'a_0'),
                  degree=1, phi_f0=phi_f0, a_0=a_list[0])
 w_old = project(w_0, V)
 
@@ -239,7 +250,7 @@ c.add_bc(bc_left_c)
 # bcs = [bc_left_c]
 # bcs = []
 
-bc_right_us = DirichletBC(V.sub(3), 0, right)
+bc_right_us = DirichletBC(V.sub(3), params["bcs"]["u_s_right"], right)
 u_s.add_bc(bc_right_us)
 bcs = [bc_left_c, bc_right_us]
 
@@ -313,9 +324,13 @@ Plot the initial curves and save all our data
 # short_quants = ["phi", "E", "c", "u_s"]
 saving = [True, True, True, True, True]
 short_quants = ["phi", "E", "c", "u_s", "v_s"]
-file_names = [f"data/initial/{q}_bM_{beta_E_num}.csv" for q in short_quants]
-for file_name in file_names:
-    pd.DataFrame().to_csv(file_name)
+data_path = f"resources/{trial}/{v_name}/data"
+if any(saving) and not os.path.isdir(data_path):
+    os.makedirs(data_path)
+file_names = [f"{data_path}/{q}.csv" for q in short_quants]
+for i in range(len(saving)):
+    if saving[i]:
+        pd.DataFrame().to_csv(file_names[i])
 
 Quantity.plot_quantities(quantities, norm, 0.0, saving, file_names)
 
@@ -434,8 +449,13 @@ v_s_.label_plot(x_label="$\\xi$", title="Difference")
 for ax in axs:
     ax.set_title("")
 
+# Check plot directory exists
+plot_path = f"resources/{trial}/{v_name}/plots"
+if not os.path.exists(plot_path):
+    os.makedirs(plot_path)
+
 # Save figure
-fig.savefig(f"plots/initial/coupling_a/time_traces_v_0_01.png", bbox_inches="tight")
+fig.savefig(f"{plot_path}/time_traces.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -446,5 +466,6 @@ ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.legend()
 # ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"plots/initial/coupling_a/left_bdry_v_0_01.png",
-              bbox_inches="tight")
+fig_a.savefig(f"{plot_path}/left_bdry.png", bbox_inches="tight")
+
+param_file.close()

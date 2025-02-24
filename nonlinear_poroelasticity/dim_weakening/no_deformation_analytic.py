@@ -1,15 +1,29 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import json
 
 from quantity import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 30})
 plt.rcParams['text.usetex'] = True
 
+"""
+Reading in our parameters
+"""
+trial = "analytic"
+v_name = "v_0"
+param_file = open(f"resources/{trial}/{v_name}/params.json")
+params = json.load(param_file)
+
+N_x = params['comp']['N_x']
+N_time = params['comp']['N_time']
+delta_t = params['comp']['delta_t']
+
+
 # Setting up domain, parameters, and max index of sum
-x_arr = np.linspace(0, 1, 40)
-t_arr = np.linspace(0, 1, 100)
+x_arr = np.linspace(0, 1, N_x + 1)
+t_arr = np.linspace(0, N_time * delta_t, N_time)
 alpha = 0.5
 n_upper = 1000
 
@@ -51,4 +65,4 @@ fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=c.cmap),
 c.label_plot(x_label="$x$", title="")
 
 # Saving the figure
-fig.savefig("plots/analytic/no_deformation_c.png", bbox_inches="tight")
+fig.savefig(f"resources/{trial}/{v_name}/plots/analytic.png", bbox_inches="tight")

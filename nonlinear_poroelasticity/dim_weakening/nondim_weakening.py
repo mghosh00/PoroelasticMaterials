@@ -35,12 +35,13 @@ t_{v_{i}} = \\frac{L}{v_{i}^{*}}, (v_{i} = v, v_{f} or v_{s}),
 t_{E} = \\frac{1}{\\beta_{E}c^{*}},
 t_{c} = \\frac{L^{2}}{\\mathcal{D}_{m}}.
 """
-
+import os
 from fenics import *
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
+import json
 
 from quantity import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
@@ -48,37 +49,50 @@ mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
 
 """
+Reading in our parameters
+"""
+trial = "analytic"
+v_name = "v_0"
+param_file = open(f"resources/{trial}/{v_name}/params.json")
+params = json.load(param_file)
+
+# Whether we'll plot on a fixed domain or not
+fixed_domain = False
+plot_coord = "x" if fixed_domain else "xi"
+plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
+
+"""
 Define model parameters
 """
 
 # Timescale, [t]
-t_sc = Constant(1)
+t_sc = Constant(params["scales"]["t"])
 
 # Length of domain, L
-L = Constant(1)
+L = Constant(params["phys"]["L"])
 
 # Initial porosity, \\phi_{f,0}
-phi_f0 = Constant(0.5)
+phi_f0 = Constant(params["ics"]["phi_f"])
 
 # Degradation parameter
-beta_E = Constant(0.001)
+beta_E = Constant(params["phys"]["beta_E"])
 
 # Diffusive parameter for the solute concentration
-D_m = Constant(0.5)
+D_m = Constant(params["phys"]["D_m"])
 
 # Poisson ratio and viscosity
-nu = Constant(0.3)
-mu = Constant(1)
+nu = Constant(params["phys"]["nu"])
+mu = Constant(params["phys"]["mu"])
 
 # Permeability scale
-k_0 = Constant(1)
+k_0 = Constant(params["scales"]["k"])
 
 # Solute concentration, Young's modulus and velocity scales
-c_star = Constant(1.0)
-E_star = Constant(1.0)
-v_star = Constant(1.0)
-v_f_star = Constant(1.0)
-v_s_star = Constant(1.0)
+c_star = Constant(params["scales"]["c"])
+E_star = Constant(params["scales"]["E"])
+v_star = Constant(params["scales"]["v"])
+v_f_star = Constant(params["scales"]["v_f"])
+v_s_star = Constant(params["scales"]["v_s"])
 
 # Timescales (only parameters other than nu and phi_f0 in the equations)
 t_phi = (mu * L ** 2) / (k_0 * E_star)
@@ -101,27 +115,23 @@ t_phi_num, t_E_num, t_c_num = nums(t_phi, t_E, t_c)
 
 
 # Setting up the moving boundary
-a_list = [0.0]
+a_list = [params["ics"]["a"]]
 
 """
 Computational parameters
 """
 
 # Size of time step
-delta_t = 1e-2
+delta_t = params["comp"]["delta_t"]
 
 # Number of time steps
-N_time = 500
+N_time = params["comp"]["N_time"]
 
 # Number of mesh points
-N_x = 100
+N_x = params["comp"]["N_x"]
 
 # Imposed phase-averaged velocity
-vt_0 = '0.0'
-vt_const = '1.0'
-vt_step = 't < delta_t * N_time / 2 ? 0.0 : 1.0'
-vt_cts = '1.0 * t'
-vt = Expression(vt_const,
+vt = Expression(params["v"]["expr"],
                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
@@ -132,7 +142,7 @@ mesh = IntervalMesh(N_x, 0, 1)
 
 # get the xi coodinates
 xi = SpatialCoordinate(mesh)[0]
-xi_arr = np.linspace(0, 1, 101)
+xi_arr = np.linspace(0, 1, N_x + 1)
 
 # Set up function space
 P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
@@ -147,33 +157,56 @@ Function to change spatial coordinates and get to the correct mesh.
 """
 
 
-def xi_t_to_x_t(f: np.array, a: np.array):
+def fenics_to_numpy(_mesh: Mesh, f: Function):
+    """Converts a FEniCS function to numpy
+
+    :param _mesh: The mesh
+    :param f: The function
+    :return: The numpy arrays for the coordinates and function
+    """
+    # If numpy arrays are passed, just return them back
+    mesh_array = (_mesh if isinstance(_mesh, np.ndarray)
+                  else np.array(_mesh.coordinates()))
+    f_array = (f if isinstance(f, np.ndarray)
+               else f.compute_vertex_values(_mesh))
+    return mesh_array, f_array
+
+
+def xi_t_to_x_t(_mesh: Mesh, _a: float, *_quantities: Quantity):
     """Change the quantity from (xi, t) coordinates to (x, t) where
     \\xi = 1 - \\frac{1 - x}{1 - a(t)}. We also fit onto the new mesh, which
     will involve some interpolation.
 
-    :param f: Some quantity in (xi, t) coordinates (np array).
-    :param a: The moving boundary a(t).
-    :return: The new array in (x, t) coordinates.
+    :param _mesh: The mesh for the domain.
+    :param _a: The moving boundary a(t).
+    :param _quantities: A tuple of quantities in (xi, t) coordinates (np array).
+    :return: The new tuple of arrays in (x, t) coordinates.
     """
-    f_new = []
-
-    # Now focus on each timestep
-    for i in range(f.shape[1]):
-        # Find the specific timestep
-        f_i = f[:, i]
+    f_part_list = []
+    for quantity in _quantities:
+        _, _f = fenics_to_numpy(_mesh, quantity.f)
         # How many points there are in the (x, t) domain
-        N_part = N_x - int(a[i] * N_x)
+        N_part = N_x - int(_a * N_x)
         # Shrink region to [0, 1] (using transformation) and interpolate onto
         # only the left part of the grid
-        f_i_part = np.interp(np.linspace(0, 1, N_part + 1),
-                             np.linspace(0, 1, N_x + 1),
-                             f_i)
-        # Fill the left of array with NaNs
-        f_i_part = np.concatenate([np.full(N_x - N_part, np.nan), f_i_part])
+        f_part = np.interp(np.linspace(0, 1, N_part + 1),
+                           np.linspace(0, 1, N_x + 1),
+                           _f)
+        # Fill the left of array with NaNs if domain has been compressed
+        if N_x - N_part >= 0:
+            f_part = np.concatenate([np.full(N_x - N_part, np.nan), f_part])
+            quantity.mesh_fixed = np.linspace(0, 1, N_x + 1)
+        # Else, if domain has expanded, we must change the mesh
+        else:
+            dx = 1 / N_x
+            N_neg = N_part - N_x
+            mesh_fixed = np.linspace(- N_neg * dx, 1, N_x + N_neg + 1)
+            # Update the fixed mesh of the quantity
+            quantity.mesh_fixed = mesh_fixed
 
-        f_new.append(f_i_part)
-    return np.array(f_new).transpose()
+        f_part_list.append(f_part)
+
+    return tuple(f_part_list)
 
 
 """
@@ -189,7 +222,8 @@ u_s = Quantity("$u_s$", "Greens", 3, mesh)
 v_phi, v_E, v_c, v_us, v_a = TestFunctions(V)
 
 # Define the initial conditions
-w_0 = Expression(('phi_f0', '1', '1', '0', 'a_0'),
+w_0 = Expression(('phi_f0', params["ics"]["E"], params["ics"]["c"],
+                  params["ics"]["u_s"], 'a_0'),
                  degree=1, phi_f0=phi_f0, a_0=a_list[0])
 w_old = project(w_0, V)
 
@@ -256,29 +290,16 @@ def right(xi):
 
 
 # Define the boundary conditions at the left and right
-bc_left_c = DirichletBC(V.sub(2), 1, left)
+bc_left_c = DirichletBC(V.sub(2), params["bcs"]["c_left"], left)
 c.add_bc(bc_left_c)
 # bcs = [bc_left_c]
 # bcs = []
 
-bc_right_us = DirichletBC(V.sub(3), 0, right)
+bc_right_us = DirichletBC(V.sub(3), params["bcs"]["u_s_right"], right)
 u_s.add_bc(bc_right_us)
 bcs = [bc_left_c, bc_right_us]
 
-
-def fenics_to_numpy(_mesh: Mesh, f: Function):
-    """Converts a FEniCS function to numpy
-
-    :param _mesh: The mesh
-    :param f: The function
-    :return: The numpy arrays for the coordinates and function
-    """
-    # If numpy arrays are passed, just return them back
-    mesh_array = (_mesh if isinstance(_mesh, np.ndarray)
-                  else np.array(_mesh.coordinates()))
-    f_array = (f if isinstance(f, np.ndarray)
-               else f.compute_vertex_values(_mesh))
-    return mesh_array, f_array
+param_file.close()
 
 
 # Define our fluid and solid velocities on the right
@@ -336,11 +357,16 @@ Plot the initial curves and save all our data
 """
 # saving = [True, True, True, True]
 # short_quants = ["phi", "E", "c", "u_s"]
-saving = [True, True, True, True, True]
+# saving = [True, True, True, True, True]
+saving = [False] * 5
 short_quants = ["phi", "E", "c", "u_s", "v_s"]
-file_names = [f"data/initial/{q}.csv" for q in short_quants]
-for file_name in file_names:
-    pd.DataFrame().to_csv(file_name)
+data_path = f"resources/{trial}/{v_name}/data"
+if any(saving) and not os.path.isdir(data_path):
+    os.makedirs(data_path)
+file_names = [f"{data_path}/{q}.csv" for q in short_quants]
+for i in range(len(saving)):
+    if saving[i]:
+        pd.DataFrame({'x': xi_arr}).to_csv(file_names[i])
 
 Quantity.plot_quantities(quantities, norm, 0.0, saving, file_names)
 
@@ -364,7 +390,7 @@ Define the weak form
 """
 
 # Weak form for the phi equation
-Fun_phi = ((dphi_dt / t_sc - da_dt * phi_f.g / (1 - a)) * phi_f.v * dx / t_sc +
+Fun_phi = ((dphi_dt / t_sc - da_dt * phi_f.g / (1 - a)) * phi_f.v / t_sc * dx +
            ((1 / (1 - a))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) / t_phi -
             (1 / (1 - a)) * phi_f.g * (vt / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
            (vt / t_v - (1 - xi) * da_dt / t_sc) * phi_f.v / (1 - a) * ds)
@@ -402,7 +428,7 @@ solver = NonlinearVariationalSolver(problem)
 Loop over time steps and solve
 """
 for n in range(N_time):
-    print("Time:", n * delta_t)
+    print("Time:", np.round(n * delta_t, 3))
 
     # Update some variables
     vt.t = n * delta_t
@@ -410,16 +436,21 @@ for n in range(N_time):
     # Solve
     solver.solve()
     phi_f.f, E.f, c.f, u_s_new, a_f = w.split(deepcopy=True)
-    v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_f(0.0), phi_f0_num, nu_num,
-                               t_v_num, t_v_s_num, t_phi_num)
+    # v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_f(0.0), phi_f0_num, nu_num,
+    #                            t_v_num, t_v_s_num, t_phi_num)
     a_list.append(a_f(0.0))
-    # v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
-    #                            t_vs_num, t_sc_num)
+    v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
+                               t_v_s_num, t_sc_num)
 
     w_old.assign(w)
 
+    # Change coordinates onto the fixed domain for plotting
+    (phi_f.f_fixed, E.f_fixed, c.f_fixed,
+     u_s.f_fixed, v_s_.f_fixed) = xi_t_to_x_t(mesh, a_list[-1], phi_f, E,
+                                              c, u_s, v_s_)
     # plot at the current timepoint
-    Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names)
+    Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving, file_names,
+                             fixed_domain=fixed_domain)
     u_s.f = u_s_new
 
 """
@@ -430,38 +461,43 @@ Colourbars
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=phi_f.cmap),
              orientation='vertical',
              label='$t$', ax=phi_f.ax)
-phi_f.label_plot(x_label="$\\xi$", title="Porosity")
+phi_f.label_plot(x_label=plot_coord_tex, title="Porosity")
 
 # E
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=E.cmap),
              orientation='vertical',
              label='$t$', ax=E.ax)
-E.label_plot(x_label="$\\xi$", title="Young's modulus")
+E.label_plot(x_label=plot_coord_tex, title="Young's modulus")
 
 # c
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=c.cmap),
              orientation='vertical',
              label='$t$', ax=c.ax)
-c.label_plot(x_label="$\\xi$", title="Solute concentration")
+c.label_plot(x_label=plot_coord_tex, title="Solute concentration")
 
 # u_s
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=u_s.cmap),
              orientation='vertical',
              label='$t$', ax=u_s.ax)
-u_s.label_plot(x_label="$\\xi$", title="Displacement")
+u_s.label_plot(x_label=plot_coord_tex, title="Displacement")
 
 # diff
 fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=v_s_.cmap),
              orientation='vertical',
              label='$t$', ax=v_s_.ax)
-v_s_.label_plot(x_label="$\\xi$", title="Difference")
+v_s_.label_plot(x_label=plot_coord_tex, title="Difference")
 
 # Remove titles
 for ax in axs:
     ax.set_title("")
 
+# Check plot directory exists
+plot_path = f"resources/{trial}/{v_name}/plots"
+if not os.path.exists(plot_path):
+    os.makedirs(plot_path)
+
 # Save figure
-fig.savefig(f"plots/nondim/testing/time_traces_v_0_01.png", bbox_inches="tight")
+fig.savefig(f"{plot_path}/time_traces_{plot_coord}.png", bbox_inches="tight")
 
 # Create figure for the left boundary over time
 fig_a, ax_a = plt.subplots()
@@ -472,5 +508,4 @@ ax_a.set_xlabel("Left boundary")
 ax_a.set_ylabel("Time")
 ax_a.legend()
 # ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"plots/nondim/testing/left_bdry_v_0_01.png",
-              bbox_inches="tight")
+fig_a.savefig(f"{plot_path}/left_bdry.png", bbox_inches="tight")
