@@ -12,9 +12,9 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters and defining our paths
 """
-trial = "nondim_initial"
-v_name = "v_0_1_steprev"
-dir_path = f"resources/{trial}/{v_name}"
+trial = "long_steady_state"
+sub_trial = "v_0_1"
+dir_path = f"resources/{trial}/{sub_trial}"
 data_path = f"{dir_path}/data"
 plot_path = f"{dir_path}/plots"
 param_file = open(f"{dir_path}/params.json")
