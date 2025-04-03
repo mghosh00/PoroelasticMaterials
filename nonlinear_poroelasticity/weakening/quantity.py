@@ -2,6 +2,7 @@
 """
 import numpy as np
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import pandas as pd
 from warnings import simplefilter
 
@@ -133,13 +134,15 @@ class Quantity:
         return mesh_array, f_array
 
     def plot(self, norm: mpl.colors.Normalize, time: float,
-             save_data: bool = False, fixed_domain: bool = False):
+             save_data: bool = False, fixed_domain: bool = False,
+             label: str = None):
         """Plots the curve at the current timepoint (dictated by the col_val).
 
         :param norm: A normalising function for the colorscale.
         :param time: A float for the current timepoint.
         :param save_data: Whether we save the data or not.
         :param fixed_domain: Whether we plot on the fixed or transformed domain.
+        :param label: Whether the plot should have a label.
         """
         if fixed_domain and self.f_fixed is not None:
             f_array = self.f_fixed
@@ -147,8 +150,6 @@ class Quantity:
         else:
             f = self.f
             mesh_array, f_array = self.fenics_to_numpy(self._mesh, f)
-        if self.ax:
-            self.ax.plot(mesh_array, f_array, color=self.cmap(norm(time)))
         if save_data:
             diff = len(mesh_array) - len(self.df)
             if diff > 0:
@@ -160,6 +161,10 @@ class Quantity:
                 df = pd.concat([new_df, self.df], ignore_index=True)
                 df['x'] = mesh_array
             self.df[time] = f_array
+        if self.ax:
+            line = self.ax.plot(mesh_array, f_array, color=self.cmap(norm(time)),
+                                label=label)
+            return line
 
     def label_plot(self, title, x_label='', y_label='name', label_size=None):
         """Label the plot for the quantity.
@@ -185,14 +190,18 @@ class Quantity:
         :param save_list: Whether we save (choice for each quantity).
         :param fixed_domain: Whether we plot on the fixed domain or the transformed one
         """
+        lines = []
         if save_list:
             for i, quantity in enumerate(quantities):
-                quantity.plot(norm, time, save_list[i],
-                              fixed_domain=fixed_domain)
+                line = quantity.plot(norm, time, save_list[i],
+                                     fixed_domain=fixed_domain)
+                lines.append(line)
         else:
             for i, quantity in enumerate(quantities):
-                quantity.plot(norm, time,
-                              fixed_domain=fixed_domain)
+                line = quantity.plot(norm, time,
+                                     fixed_domain=fixed_domain)
+                lines.append(line)
+        return lines
 
     @staticmethod
     def write_to_csv(quantities, saving: list[bool], filenames: list[str]):
@@ -225,6 +234,50 @@ class Quantity:
         """
         for i in range(len(quantities)):
             quantities[i].set_ax(axs[i])
+
+    def annotate_panel(self, fig: plt.Figure, norm: mpl.colors.Normalize,
+                       xlabel: str, tlabel: str = "$t$", title: str = None,
+                       ymin: float = None, ymax: float = None):
+        """Sets up the colorbar for an axis and sets up the labels.
+
+        :param fig: The overall figure object.
+        :param norm: The Normalize object.
+        :param xlabel: The x label.
+        :param tlabel: The t label.
+        :param title: The optional title of the panel.
+        :param ymin: The optional minimum value of the quantity (for all time).
+        :param ymax: The optional maximum value of the quantity (for all time).
+        """
+        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=self.cmap),
+                     orientation='vertical',
+                     label=tlabel, ax=self.ax)
+        self.label_plot(x_label=xlabel, title=title)
+        if ymin and ymax:
+            self.ax.set_ylim(ymin, ymax)
+
+    @staticmethod
+    def annotate_plots(quantities, fig, norm, xlabel, tlabel="$t$", titles=None,
+                       mins=None, maxes=None):
+        """Sets up colorbars and labels for a list of quantities.
+
+        :param quantities: The list of quantities.
+        :param fig: The overall figure object.
+        :param norm: The Normalize object.
+        :param xlabel: The x label.
+        :param tlabel: The t label.
+        :param titles: The optional titles of the panels.
+        :param mins: The optional minimal values of the quantities (for all time).
+        :param maxes: The optional maximal values of the quantities (for all time).
+        """
+        if titles is None:
+            titles = [None] * len(quantities)
+        if mins is None:
+            mins = [None] * len(quantities)
+        if maxes is None:
+            maxes = [None] * len(quantities)
+        for i, quantity in enumerate(quantities):
+            quantity.annotate_panel(fig, norm, xlabel, tlabel, titles[i],
+                                    mins[i], maxes[i])
 
     def __str__(self):
         return self._name

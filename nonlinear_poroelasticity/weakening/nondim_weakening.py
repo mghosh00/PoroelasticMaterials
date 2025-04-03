@@ -51,8 +51,8 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "long_steady_state"
-sub_trial = "v_0_1_sigma_0_1"
+trial = "nondim_realistic_params"
+sub_trial = "lower_bound_crit_gamma"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -64,6 +64,23 @@ num_quants = 6
 
 # Whether to save data or not
 saving = [True] * num_quants
+
+"""
+Computational parameters
+"""
+
+# Size of time step
+delta_t = params["comp"]["delta_t"]
+
+# Number of time steps
+N_time = params["comp"]["N_time"]
+
+# Number of mesh points
+N_x = params["comp"]["N_x"]
+
+# The frequency of plotting
+num_lines = N_time / 1
+plotting_freq = int(N_time / num_lines)
 
 """
 Define model parameters
@@ -124,19 +141,6 @@ t_phi_num, t_E_num, t_c_num = nums(t_phi, t_E, t_c)
 
 # Setting up the moving boundary
 a_list = [params["ics"]["a"]]
-
-"""
-Computational parameters
-"""
-
-# Size of time step
-delta_t = params["comp"]["delta_t"]
-
-# Number of time steps
-N_time = params["comp"]["N_time"]
-
-# Number of mesh points
-N_x = params["comp"]["N_x"]
 
 # Imposed phase-averaged velocity
 vt = Expression(params["v"]["expr"],
@@ -360,13 +364,15 @@ def get_phi_l(_mesh, _sigma_l, _E, _phi_f0, _nu):
     """
     _, E_arr = fenics_to_numpy(_mesh, _E)
     E_l = float(E_arr[0])
-    b = (1 + _nu) * (1 - 2 * _nu) * _sigma_l / E_l + 2 * _nu
+    b = 2 * (1 + _nu) * (1 - 2 * _nu) * _sigma_l / E_l + 2 * _nu
     discriminant = b ** 2 + 4 * (1 - 2 * _nu)
     factor = (1 - _phi_f0) / (2 * (1 - 2 * _nu))
     return 1 - factor * (discriminant ** (1 / 2) - b)
 
 
 bc_left_phi = DirichletBC(V.sub(0), get_phi_l(mesh, sigma_l_num, E.f, phi_f0_num, nu_num), left)
+# bc_left_phi = DirichletBC(V.sub(0), phi_f0_num, left)
+
 bcs.append(bc_left_phi)
 
 param_file.close()
@@ -485,8 +491,6 @@ Fun_phi = ((dphi_dt - da_dt * phi_f.g / (1 - a)) * phi_f.v / t_sc * dx +
            ((1 / (1 - a))**2 * phi_f.g * k_e.g * (E.g * g.g).dx(0) / t_phi -
             (1 / (1 - a)) * phi_f.g * (vt / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
            (vt / t_v - (1 - xi) * da_dt / t_sc) * phi_f.v / (1 - a) * ds)
-           # (vt / t_v * xi) * phi_f.v / (1 - a) * ds)
-           # 0)
 
 # Fun_sigma = (sigma_l - (E.g * g.g) / (1 - phi_f0)) * (1 - xi) * sigma.v * ds
 
@@ -523,7 +527,7 @@ jacobian = derivative(Fun, w)
 """
 Loop over time steps and solve
 """
-v_s_0_list = [0.0]
+v_list = [float(vt(0.0))]
 for n in range(N_time):
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
@@ -542,16 +546,17 @@ for n in range(N_time):
     a_list.append(a_f(0.0))
     v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
                                t_v_s_num, t_sc_num)
-    v_s_0_list.append(v_s_.f[0])
+    v_list.append(float(vt(0.0)))
     w_old.assign(w)
 
     # Change coordinates onto the fixed domain for plotting
     (phi_f.f_fixed, E.f_fixed, c.f_fixed, sigma.f_fixed,
      u_s.f_fixed, v_s_.f_fixed) = xi_t_to_x_t(mesh, a_list[-1], phi_f, E,
                                               c, sigma, u_s, v_s_)
-    # plot at the current timepoint
-    Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving,
-                             fixed_domain=fixed_domain)
+    # plot at the current timepoint if needed
+    if (n + 1) % plotting_freq == 0:
+        Quantity.plot_quantities(quantities, norm, (n + 1) * delta_t, saving,
+                                 fixed_domain=fixed_domain)
     u_s.f = u_s_new
     phi_l = get_phi_l(mesh, sigma_l_num, E.f, phi_f0_num, nu_num)
     if phi_l < 0.0:
@@ -565,52 +570,11 @@ short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
 data_path = f"resources/{trial}/{sub_trial}/data"
 if any(saving) and not os.path.isdir(data_path):
     os.makedirs(data_path)
-file_names = [f"{data_path}/{q}.csv" for q in short_quants]
+file_names = [f"{data_path}/{q}_{plot_coord}.csv" for q in short_quants]
 Quantity.write_to_csv(quantities, saving, file_names)
 
-"""
-Colourbars
-"""
-
-# phi_f
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=phi_f.cmap),
-             orientation='vertical',
-             label='$t$', ax=phi_f.ax)
-phi_f.label_plot(x_label=plot_coord_tex, title="Porosity")
-
-# E
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=E.cmap),
-             orientation='vertical',
-             label='$t$', ax=E.ax)
-E.label_plot(x_label=plot_coord_tex, title="Young's modulus")
-
-# c
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=c.cmap),
-             orientation='vertical',
-             label='$t$', ax=c.ax)
-c.label_plot(x_label=plot_coord_tex, title="Solute concentration")
-
-# sigma
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=sigma.cmap),
-             orientation='vertical',
-             label='$t$', ax=sigma.ax)
-sigma.label_plot(x_label=plot_coord_tex, title="Terzaghi stress")
-
-# u_s
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=u_s.cmap),
-             orientation='vertical',
-             label='$t$', ax=u_s.ax)
-u_s.label_plot(x_label=plot_coord_tex, title="Displacement")
-
-# v_s
-fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=v_s_.cmap),
-             orientation='vertical',
-             label='$t$', ax=v_s_.ax)
-v_s_.label_plot(x_label=plot_coord_tex, title="Difference")
-
-# Remove titles
-for ax in axs_list:
-    ax.set_title("")
+# Set up the colorbars and label the plots
+Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex)
 
 # Check plot directory exists
 plot_path = f"resources/{trial}/{sub_trial}/plots"
@@ -620,16 +584,23 @@ if not os.path.exists(plot_path):
 # Save figure
 fig.savefig(f"{plot_path}/time_traces_{plot_coord}.png", bbox_inches="tight")
 
-# Create figure for the left boundary over time
-fig_a, ax_a = plt.subplots()
+# Create figure for the imposed velocity and left boundary over time
+fig_v_a, axs_v_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20/3), sharex=True)
+ax_v, ax_a = axs_v_a
 times = np.linspace(0, len(a_list) * delta_t, len(a_list))
+ax_v.plot(times, np.array(v_list),
+          color='forestgreen', label='$v(t)$')
+# ax_a.plot(np.array(v_s_0_list), times,
+#           color='darkviolet', label='$v_s(0)$')
+ax_v.set_ylabel("Imposed velocity")
+ax_v.legend()
 # a_expected = times * params["v"]["v_final"] * params["scales"]["t"] / t_v_num
-ax_a.plot(np.array(a_list), times,
+ax_a.plot(times, np.array(a_list),
           color='darkviolet', label='$a(t)$')
 # ax_a.plot(np.array(v_s_0_list), times,
 #           color='darkviolet', label='$v_s(0)$')
-ax_a.set_xlabel("Left boundary")
-ax_a.set_ylabel("Time")
+ax_a.set_xlabel("Time")
+ax_a.set_ylabel("Left boundary")
 ax_a.legend()
 # ax_a.set_xlim(min(a_list), max(a_list))
-fig_a.savefig(f"{plot_path}/left_bdry.png", bbox_inches="tight")
+fig_v_a.savefig(f"{plot_path}/v_and_a.png", bbox_inches="tight")
