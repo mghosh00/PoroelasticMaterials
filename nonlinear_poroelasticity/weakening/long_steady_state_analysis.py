@@ -24,7 +24,7 @@ iterative = False
 Reading in our parameters and defining our paths
 """
 trial = "nondim_realistic_params"
-sub_trial = "lower_bound_crit_gamma"
+sub_trial = "below_gamma_crit"
 dir_path = f"resources/{trial}/{sub_trial}"
 data_path = f"{dir_path}/data"
 plot_path = f"{dir_path}/plots"
@@ -368,11 +368,11 @@ u_s_ss = calculate_u_s(phi_f_ss, a_ss, xi, phi_f0)
 # Young's modulus. We'll also plot the linearised version of phi alongside the actual
 # phi profile.
 
-# nrows, ncols = 3, 1
-nrows, ncols = 1, 1
+nrows, ncols = 3, 1
+# nrows, ncols = 1, 1
 fig, axs = plt.subplots(nrows, ncols, sharex=True, figsize=(8, nrows * 10/3))
-# ax_phi, ax_c, ax_us = axs
-ax_phi = axs
+ax_phi, ax_c, ax_us = axs
+# ax_phi = axs
 
 label_ss = "Iterated steady state" if iterative else "Analytical steady state"
 
@@ -383,19 +383,19 @@ ax_phi.legend()
 ax_phi.set_xlabel("$\\xi$")
 ax_phi.set_ylabel("$\\phi_f$")
 
-# # Plotting for c
-# ax_c.plot(xi, c_final, "-k", label="Final profile from numerics")
-# ax_c.plot(xi, c_ss, "--r", label=label_ss)
-# ax_c.legend()
-# ax_c.set_xlabel("$\\xi$")
-# ax_c.set_ylabel("$c$")
-#
-# # Plotting for u_s
-# ax_us.plot(xi, u_s_final, "-k", label="Final profile from numerics")
-# ax_us.plot(xi, u_s_ss, "--r", label=label_ss)
-# ax_us.legend()
-# ax_us.set_xlabel("$\\xi$")
-# ax_us.set_ylabel("$u_s$")
+# Plotting for c
+ax_c.plot(xi, c_final, "-k", label="Final profile from numerics")
+ax_c.plot(xi, c_ss, "--r", label=label_ss)
+ax_c.legend()
+ax_c.set_xlabel("$\\xi$")
+ax_c.set_ylabel("$c$")
+
+# Plotting for u_s
+ax_us.plot(xi, u_s_final, "-k", label="Final profile from numerics")
+ax_us.plot(xi, u_s_ss, "--r", label=label_ss)
+ax_us.legend()
+ax_us.set_xlabel("$\\xi$")
+ax_us.set_ylabel("$u_s$")
 
 # Saving the figure
 it_text = "_it" if iterative else ""

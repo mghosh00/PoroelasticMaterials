@@ -38,14 +38,14 @@ plt.rcParams['text.usetex'] = True
 Reading in our parameters
 """
 trial = "nondim_realistic_params"
-sub_trial = "lower_bound"
+sub_trial = "below_gamma_crit"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
 # Whether we produce a .gif or set of traces
-gif = True
+gif = False
 # Whether we plot on log-log axes or not
-log = False
+log = True
 log_text = "_log" if log else ""
 
 # Whether we'll plot on a fixed domain or not
@@ -159,6 +159,24 @@ def phi_f_bl_late(_x: np.array, _v: float, _D_phi_late: float):
     return (_v * (1 - _x) / _D_phi_late) ** (1 / 4)
 
 
+def phi_f_bl_late_longer(_x: np.array, _v: float, _D_phi_late: float,
+                         _phi_f0: float, _nu: float):
+    """Returns the np.array solution in the late boundary layer. This is
+    described at the top of the file, but with an extra term.
+
+    :param _x: The spatial coordinate array.
+    :param _v: The nondimensional volume flux.
+    :param _D_phi_late: The diffusion coefficient for the problem.
+    :param _phi_f0: The initial porosity.
+    :param _nu: The Poisson's ratio.
+    :return: The porosity array at this timepoint within the late BL.
+    """
+    term1 = (_v * (1 - _x) / _D_phi_late) ** (1 / 4)
+    factor2 = - 2 * (2 * (1 - _phi_f0) ** 2 + 1 - 2 * _nu) / (5 * ((1 - _phi_f0) ** 2 + 1 - 2 * _nu))
+    term2 = (_v * (1 - _x) / _D_phi_late) ** (1 / 2)
+    return term1 + factor2 * term2
+
+
 """
 Loop over time steps and plot each frame
 """
@@ -169,7 +187,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-period = 0.0004
+period = 0.1
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -199,6 +217,7 @@ if not gif:
 
 early_label = "Early boundary layer"
 late_label = "Late boundary layer"
+late_extra_label = "Late boundary layer (new)"
 fenics_label = "FEniCS solution"
 n_end = int(N_time * delta_t / period) + 1
 
@@ -218,10 +237,13 @@ for n in range(n_end):
     # Calculate quantities within boundary layer
     early_bl_quants = []
     late_bl_quants = []
+    late_bl_extra_quants = []
     phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, v, D_phi_early)
     phi_f_late = phi_f_bl_late(coord_arr_n, v, D_phi_late)
+    phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, v, D_phi_late, phi_f0, nu)
     early_bl_quants.append(phi_f_early)
     late_bl_quants.append(phi_f_late)
+    late_bl_extra_quants.append(phi_f_late_extra)
 
     """
     Set up figure for the overall plot
@@ -239,6 +261,7 @@ for n in range(n_end):
         coord_arr_n = np.log(1 - coord_arr_n) if log else coord_arr_n
         early_bl_n = np.log(early_bl_quants[i]) if log else early_bl_quants[i]
         late_bl_n = np.log(late_bl_quants[i]) if log else late_bl_quants[i]
+        late_bl_extra_n = np.log(late_bl_extra_quants[i] if log else late_bl_extra_quants[i])
         fenics_arr_n = np.log(data_dict[name][:, m]) if log else data_dict[name][:, m]
         if gif:
             line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--g", label=early_label)
@@ -246,7 +269,7 @@ for n in range(n_end):
             line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color=colours[i], label=fenics_label)
             ax.set_xlabel(plot_coord_tex)
             ax.set_ylabel(latex_quants[i])
-            ax.set_xlim(xmin, xmax)
+            ax.set_xlim(-5, xmax)
             ax.set_ylim(mins[i], maxes[i])
             ax.set_title(f"Time = {round(t, 3)}")
         else:
@@ -255,6 +278,8 @@ for n in range(n_end):
             #                         label=early_label if n == 0 else None)
             line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r",
                                    label=late_label if n == 0 else None)
+            line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, "--y",
+                                         label=late_extra_label if n == 0 else None)
             line_fenics = phi_f.plot(norm, t, fixed_domain=True,
                                      label=fenics_label if n == 0 else None)
         ax.legend()

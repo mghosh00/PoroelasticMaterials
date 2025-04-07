@@ -12,18 +12,20 @@ where the operators D^{f} and D^{s} are the material derivatives for the fluid a
 fractions respectively. These operators are dependent on E, k_{e}, \\sigma_{e} (both given
 functions of the porosity) and v(t), which is a prescribed phase-averaged velocity.
 
-The initial conditions are at t = 0:
+In this script, we consider the compact support solution, which occurs after some
+time t = t_0 (when the porosity first becomes zero on the right boundary).
+The initial conditions at t = t_0 are whatever they were at the end of the previous
+simulation,
 
-        \\phi_{f} = \\phi_{f,0} (= const.), E = E_{0}(x), c = c_{0}(x),
+with boundary conditions (on a domain [a(t), b(t)] with left + right moving boundary):
 
-with boundary conditions (on a domain [a(t), 1] with left moving boundary):
-
-        v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = 1,
+        v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = b(t),
+        phi_f = phi_l at x = a(t), phi_f = 0 at x = b(t),
         c = 1 at x = a(t), \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}cv_{f} = 0 at x = 1,
 
-The moving boundary can be determined by the following implicit relation:
+The left moving boundary can be determined by the following implicit relation:
 
-        a(t) = \\phi_{f,0} - \\int_{a(t)}^{1}\\phi_{f}(x, t)dx,
+        a(t) = \\phi_{f,0} - \\int_{a(t)}^{b(t)}\\phi_{f}(x, t)dx,
 
 given a known profile for \\phi_{f} at the previous timestep (in the numerical scheme).
 We will also change coordinates onto a fixed domain (see details below).
@@ -138,13 +140,24 @@ t_sc_num, phi_f0_num, nu_num = nums(t_sc, phi_f0, nu)
 t_v_num, t_v_f_num, t_v_s_num = nums(t_v, t_v_f, t_v_s)
 t_phi_num, t_E_num, t_c_num = nums(t_phi, t_E, t_c)
 
+# Reading in from the previous simulation up to time t = t_0
+short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
+data_path = f"resources/{trial}/{sub_trial}/data"
+file_names_xi = [f"{data_path}/{q}_xi.csv" for q in short_quants]
+old_arrs = {short_quants[i]: pd.read_csv(file_names_xi[i]).to_numpy()[:, 2:]
+            for i in range(len(short_quants))}
+# Time at which compact support solution begins
+t_0 = (old_arrs["phi"].shape[1] - 1) * delta_t
+old_arrs_t_0 = {q: old_arrs[q][:, -1] for q in short_quants}
+a_t_0 = old_arrs_t_0["u_s"][0]
 
-# Setting up the moving boundary
-a_list = [params["ics"]["a"]]
+# Setting up the moving boundaries
+a_list = [a_t_0]
+b_list = [1.0]
 
 # Imposed phase-averaged velocity
 vt = Expression(params["v"]["expr"],
-                degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
+                degree=1, t=t_0, delta_t=delta_t, N_time=N_time)
 
 """
 Create the mesh
@@ -160,8 +173,8 @@ xi_arr = np.linspace(0, 1, N_x + 1)
 P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
 P0 = FiniteElement("R", mesh.ufl_cell(), 0)
 
-# For vars phi_f, E, c, sigma, u_s, a
-element = MixedElement([P1, P1, P1, P1, P1, P0])
+# For vars phi_f, E, c, sigma, u_s, a, b
+element = MixedElement([P1, P1, P1, P1, P1, P0, P0])
 V = FunctionSpace(mesh, element)
 
 """
@@ -184,13 +197,14 @@ def fenics_to_numpy(_mesh: Mesh, f: Function):
     return mesh_array, f_array
 
 
-def xi_t_to_x_t(_mesh: Mesh, _a: float, *_quantities: Quantity):
+def xi_t_to_x_t(_mesh: Mesh, _a: float, _b: float, *_quantities: Quantity):
     """Change the quantity from (xi, t) coordinates to (x, t) where
-    \\xi = 1 - \\frac{1 - x}{1 - a(t)}. We also fit onto the new mesh, which
+    \\xi = \\frac{x - a}{b - a}. We also fit onto the new mesh, which
     will involve some interpolation.
 
     :param _mesh: The mesh for the domain.
-    :param _a: The moving boundary a(t).
+    :param _a: The left moving boundary a(t).
+    :param _b: The right moving boundary b(t).
     :param _quantities: A tuple of quantities in (xi, t) coordinates (np array).
     :return: The new tuple of arrays in (x, t) coordinates.
     """
@@ -198,23 +212,27 @@ def xi_t_to_x_t(_mesh: Mesh, _a: float, *_quantities: Quantity):
     for quantity in _quantities:
         _, _f = fenics_to_numpy(_mesh, quantity.f)
         # How many points there are in the (x, t) domain
-        N_part = N_x - int(_a * N_x)
+        N_part = N_x - int(_a * N_x) - int((1 - _b) * N_x)
         # Shrink region to [0, 1] (using transformation) and interpolate onto
         # only the left part of the grid
         f_part = np.interp(np.linspace(0, 1, N_part + 1),
                            np.linspace(0, 1, N_x + 1),
                            _f)
-        # Fill the left of array with NaNs if domain has been compressed
-        if N_x - N_part >= 0:
-            f_part = np.concatenate([np.full(N_x - N_part, np.nan), f_part])
+        # Fill the left of array with NaNs if domain has been compressed and
+        # the right of array with zeroes for compact support
+        if _a >= 0:
+            f_part = np.concatenate([np.full(int(_a * N_x), np.nan), f_part,
+                                     np.full(int((1 - _b) * N_x), 0.0)])
             quantity.mesh_fixed = np.linspace(0, 1, N_x + 1)
         # Else, if domain has expanded, we must change the mesh
         else:
             dx = 1 / N_x
-            N_neg = N_part - N_x
+            N_neg = - int(_a * N_x)
             mesh_fixed = np.linspace(- N_neg * dx, 1, N_x + N_neg + 1)
             # Update the fixed mesh of the quantity
             quantity.mesh_fixed = mesh_fixed
+            # Add zeroes on the right for compact support
+            f_part = np.concatenate([f_part, np.full(int((1 - _b) * N_x), 0.0)])
 
         f_part_list.append(f_part)
 
@@ -232,19 +250,39 @@ sigma = Quantity("$\\sigma_{xx}'$", "Greys", 3, mesh)
 u_s = Quantity("$u_s$", "Greens", 4, mesh)
 
 # Set up the functions from the joint space
-v_phi, v_E, v_c, v_sigma, v_us, v_a = TestFunctions(V)
+v_phi, v_E, v_c, v_sigma, v_us, v_a, v_b = TestFunctions(V)
 
 # Define the initial conditions
-w_0 = Expression(('phi_f0', params["ics"]["E"], params["ics"]["c"],
-                  '0.0', params["ics"]["u_s"], 'a_0'),
-                 degree=1, phi_f0=phi_f0, a_0=a_list[0], E_min=E_min)
-w_old = project(w_0, V)
+w_old = Function(V)
+# !!! IMPORTANT !!! Numpy and FEniCS do not have the same way of indexing. We
+# need to reverse the arrays back-to-front and insert them in an alternating
+# fashion to convert between the two
+reversed_initial_vals = np.array([old_arrs_t_0[q][::-1] for q in short_quants[:-1]])
+right_cols = [np.array([reversed_initial_vals[0, 0]] + reversed_initial_vals[:, 1].tolist()
+                       + reversed_initial_vals[1:, 0].tolist())]
+initial_vals = np.concatenate(right_cols + [reversed_initial_vals[:, j] for j in range(2, N_x + 1)] +
+                              [np.array(a_list)] + [np.array(b_list)])
+print(initial_vals)
+w_old.vector().set_local(initial_vals)
+np.set_printoptions(threshold=np.inf)
+print(w_old.vector()[:15])
+for i, q in enumerate(short_quants[:-1]):
+    print(old_arrs_t_0[q], len(old_arrs_t_0[q]))
+    w_old.sub(i).vector().set_local(old_arrs_t_0[q])
+    w_old.sub(i).vector().apply("insert")
+    print(w_old.sub(i).vector()[:], len((w_old.sub(i).vector()[:])))
+w_old.sub(5).vector().set_local(a_list)
+w_old.sub(6).vector().set_local(b_list)
+# w_0 = Expression(('phi_f0', params["ics"]["E"], params["ics"]["c"],
+#                   '0.0', params["ics"]["u_s"], 'a_0', 'b_0'),
+#                  degree=1, phi_f0=phi_f0, a_0=a_list[0], b_0=b_list[0], E_min=E_min)
+# w_old = project(w_0, V)
 
-
+# Set up all the functions
 w = Function(V)
-w_phi, w_E, w_c, w_sigma, w_us, a = split(w)
-phi_old, E_old, c_old, sigma_old, u_s_old, a_old = split(w_old)
-phi_f.f, E.f, c.f, sigma.f, u_s.f, a_f = w_old.split(deepcopy=True)
+w_phi, w_E, w_c, w_sigma, w_us, a, b = split(w)
+phi_old, E_old, c_old, sigma_old, u_s_old, a_old, b_old = split(w_old)
+phi_f.f, E.f, c.f, sigma.f, u_s.f, a_f, b_f = w_old.split(deepcopy=True)
 phi_f.set_sym_functions(w_phi, v_phi, phi_old)
 E.set_sym_functions(w_E, v_E, E_old)
 sigma.set_sym_functions(w_sigma, v_sigma, sigma_old)
@@ -364,16 +402,19 @@ def get_phi_l(_mesh, _sigma_l, _E, _phi_f0, _nu):
     """
     _, E_arr = fenics_to_numpy(_mesh, _E)
     E_l = float(E_arr[0])
+    # print(E_arr, "len E", len(E_arr))
     b = 2 * (1 + _nu) * (1 - 2 * _nu) * _sigma_l / E_l + 2 * _nu
     discriminant = b ** 2 + 4 * (1 - 2 * _nu)
     factor = (1 - _phi_f0) / (2 * (1 - 2 * _nu))
-    return 1 - factor * (discriminant ** (1 / 2) - b)
+    _phi_l = 1 - factor * (discriminant ** (1 / 2) - b)
+    return _phi_l
 
 
 bc_left_phi = DirichletBC(V.sub(0), get_phi_l(mesh, sigma_l_num, E.f, phi_f0_num, nu_num), left)
-# bc_left_phi = DirichletBC(V.sub(0), phi_f0_num, left)
+bc_right_phi = DirichletBC(V.sub(0), 0.0, right)
 
 bcs.append(bc_left_phi)
+# bcs.append(bc_right_phi)
 
 param_file.close()
 
@@ -403,14 +444,15 @@ def get_vs_from_E_phi(_mesh, _phi_f, _E, _a, _phi_f0, _nu,
 
 
 def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _a_list,
-                      _t_vs, _t_sc):
+                      _b_list, _t_vs, _t_sc):
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, u_s_new_arr = fenics_to_numpy(_mesh, _u_s_new)
     _, u_s_old_arr = fenics_to_numpy(_mesh, _u_s_old)
     dus_dt_arr = (u_s_new_arr - u_s_old_arr) / delta_t
     da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_t
+    db_dt_val = (_b_list[-1] - _b_list[-2]) / delta_t
     return (1 / (1 - phi_f_arr) *
-            ((1 - _phi_f0) * dus_dt_arr - (1 - xi_arr) * da_dt_val * (phi_f_arr - _phi_f0))
+            ((1 - _phi_f0) * dus_dt_arr - ((1 - xi_arr) * da_dt_val + xi_arr * db_dt_val) * (phi_f_arr - _phi_f0))
             * _t_vs / _t_sc)
 
 
@@ -432,8 +474,13 @@ def get_sigma_from_E_g(_mesh, _E, _g, _phi_f0):
 # E.f = Constant(params["ics"]["E"])
 # sigma.f = Constant(0.0)
 v_s_ = Quantity("$v_{s}$", "YlOrBr", 7, mesh)
-v_s_.f = (t_v_s_num / t_v_num) * vt
+v_s_.f = old_arrs_t_0["v_s"]
 quantities = [phi_f, E, c, sigma, u_s, v_s_]
+
+for q in quantities:
+    _, farr = fenics_to_numpy(mesh, q.f)
+    print(q)
+    print(farr[-3:])
 
 
 """
@@ -446,9 +493,9 @@ fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, (10 * nrow
 plt.subplots_adjust(wspace=1.0 * (ncols - 1))
 axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
 Quantity.set_axs(quantities, axs_list)
-norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
+norm = mpl.colors.Normalize(vmin=t_0, vmax=N_time * delta_t)
 
-times = np.linspace(0, N_time * delta_t, N_time + 1)
+times = np.linspace(t_0, N_time * delta_t, N_time + 1)
 
 """
 Plot the initial curves and save all our data
@@ -460,7 +507,7 @@ Plot the initial curves and save all our data
 for quantity in quantities:
     quantity.initialise_dataframe(xi_arr)
 
-Quantity.plot_quantities(quantities, norm, 0.0, saving)
+Quantity.plot_quantities(quantities, norm, t_0, saving)
 
 # define the time derivatives
 dphi_dt = (phi_f.g - phi_f.g_old) / delta_t
@@ -468,6 +515,7 @@ dE_dt = (E.g - E.g_old) / delta_t
 # dsigma_dt = (sigma.g - sigma.g_old) / delta_t
 dc_dt = (c.g - c.g_old) / delta_t
 da_dt = (a - a_old) / delta_t
+db_dt = (b - b_old) / delta_t
 dus_dt = (u_s.g - u_s.g_old) / delta_t
 
 k_e.g = compute_k_e(phi_f.g, phi_f0)
@@ -478,6 +526,9 @@ g.g = compute_g(phi_f.g, phi_f0, nu)
 # dE_dt = (1 - phi_f0) * (dsigma_dt / g.g - sigma.g / g.g ** 2 * dg_dphi * dphi_dt)
 
 # Find intermediate expressions for the solid and fluid velocities
+# v_s = t_v_s * (vt / t_v +
+#                phi_f.g * k_e.g * (E.g * g.g).dx(0) / ((b - a) * (1 - phi_f.g) * t_phi))
+# v_f = t_v_f * (vt / t_v - k_e.g * (E.g * g.g).dx(0) / ((b - a) * t_phi))
 v_s = t_v_s * (vt / t_v +
                phi_f.g * k_e.g * (E.g * g.g).dx(0) / ((1 - a) * (1 - phi_f.g) * t_phi))
 v_f = t_v_f * (vt / t_v - k_e.g * (E.g * g.g).dx(0) / ((1 - a) * t_phi))
@@ -485,6 +536,37 @@ v_f = t_v_f * (vt / t_v - k_e.g * (E.g * g.g).dx(0) / ((1 - a) * t_phi))
 """
 Define the weak form
 """
+
+# # Weak form for the phi equation
+# Fun_phi = ((dphi_dt + (db_dt - da_dt) * phi_f.g / (b - a)) * phi_f.v / t_sc * dx +
+#            ((1 / (b - a))**2 * phi_f.g * k_e.g * (E.g * g.g).dx(0) / t_phi -
+#             (1 / (b - a)) * phi_f.g * (vt / t_v - ((1 - xi) * da_dt + xi * db_dt) / t_sc)) * phi_f.v.dx(0) * dx +
+#            (vt / t_v - ((1 - xi) * da_dt + xi * db_dt) / t_sc) * phi_f.v / (b - a) * ds)
+#
+# # Fun_sigma = (sigma_l - (E.g * g.g) / (1 - phi_f0)) * (1 - xi) * sigma.v * ds
+#
+# # Weak form for the E equation
+# Fun_E = (dE_dt / t_sc + c.g * (E.g - E_min) / t_E
+#          + (v_s / t_v_s - ((1 - xi) * da_dt + xi * db_dt) / t_sc) / (b - a) * E.g.dx(0)) * E.v * dx
+# # Fun_E = dE_dt * E.v / t_sc * dx + c.g * (E.g - E_min) * E.v / t_E * dx
+#
+# # Weak form for the c equation
+# Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g +
+#           (db_dt - da_dt) * c.g * phi_f.g / (b - a)) / t_sc * c.v * dx +
+#          phi_f.g / (b - a) *
+#          (c.g.dx(0) / ((b - a) * t_c) -
+#           (v_f / t_v_f - ((1 - xi) * da_dt + xi * db_dt) / t_sc) * c.g) * c.v.dx(0) * dx)
+#
+# # Weak form for the Terzaghi stress (sort of Lagrange multiplier)
+# Fun_sigma = (sigma.g - (E.g * g.g) / (1 - phi_f0)) * sigma.v * dx
+#
+# # Weak form for the displacement
+# Fun_us = ((u_s.g.dx(0) * u_s.v -
+#            (phi_f.g - phi_f0) * (b - a) / (1 - phi_f0) * u_s.v) * dx)
+#
+# # Weak form for the left moving boundary (both forms below are valid)
+# Fun_a = (phi_f.g - 1 + (b - phi_f0) / (b - a)) * v_a * dx
+# # Fun_a = ((1 - xi) / t_sc * da_dt - 1 / t_v_s * v_s) * v_a * ds
 
 # Weak form for the phi equation
 Fun_phi = ((dphi_dt - da_dt * phi_f.g / (1 - a)) * phi_f.v / t_sc * dx +
@@ -517,8 +599,12 @@ Fun_us = ((u_s.g.dx(0) * u_s.v -
 Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a)) * v_a * dx
 # Fun_a = ((1 - xi) / t_sc * da_dt - 1 / t_v_s * v_s) * v_a * ds
 
+# Weak form for the right moving boundary
+# Fun_b = (xi * (b - a - t_v * phi_f.g * k_e.g * (E.g * g.g).dx(0) / (vt * (1 - phi_f.g) * t_phi))) * v_b * ds
+Fun_b = (b - b_list[0]) * v_b * dx
+
 # Combining the weak forms
-Fun = Fun_phi + Fun_E + Fun_c + Fun_us + Fun_a + Fun_sigma
+Fun = Fun_phi + Fun_E + Fun_c + Fun_us + Fun_a + Fun_b + Fun_sigma
 
 
 # Define the Jacobian, problem and solver
@@ -528,7 +614,7 @@ jacobian = derivative(Fun, w)
 Loop over time steps and solve
 """
 v_list = [float(vt(0.0))]
-for n in range(N_time):
+for n in range(int(t_0 / delta_t), N_time):
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
     print("Time:", np.round(n * delta_t, 3))
@@ -538,20 +624,21 @@ for n in range(N_time):
 
     # Solve
     solver.solve()
-    phi_f.f, E.f, c.f, sigma.f, u_s_new, a_f = w.split(deepcopy=True)
+    phi_f.f, E.f, c.f, sigma.f, u_s_new, a_f, b_f = w.split(deepcopy=True)
     _, phi_f_arr = fenics_to_numpy(mesh, phi_f.f)
     # sigma.f = get_sigma_from_E_g(mesh, E.f, compute_g(phi_f_arr, phi_f0_num, nu_num), phi_f0_num)
     # v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_f(0.0), phi_f0_num, nu_num,
     #                            t_v_num, t_v_s_num, t_phi_num)
     a_list.append(a_f(0.0))
-    v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
+    b_list.append(b_f(0.0))
+    v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list, b_list,
                                t_v_s_num, t_sc_num)
     v_list.append(float(vt(0.0)))
     w_old.assign(w)
 
     # Change coordinates onto the fixed domain for plotting
     (phi_f.f_fixed, E.f_fixed, c.f_fixed, sigma.f_fixed,
-     u_s.f_fixed, v_s_.f_fixed) = xi_t_to_x_t(mesh, a_list[-1], phi_f, E,
+     u_s.f_fixed, v_s_.f_fixed) = xi_t_to_x_t(mesh, a_list[-1], b_list[-1], phi_f, E,
                                               c, sigma, u_s, v_s_)
     # plot at the current timepoint if needed
     if phi_f.f_fixed[-1] < 0.0:
@@ -567,17 +654,13 @@ for n in range(N_time):
         break
     bc_left_phi = DirichletBC(V.sub(0), phi_l, left)
     bcs[-1] = bc_left_phi
-    if phi_r == 0.0:
+    if phi_r < 0.0:
         print("Porosity on the right has reached zero, exiting...")
         break
 
 # Save all relevant quantities
-short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
-data_path = f"resources/{trial}/{sub_trial}/data"
-if any(saving) and not os.path.isdir(data_path):
-    os.makedirs(data_path)
 file_names = [f"{data_path}/{q}_{plot_coord}.csv" for q in short_quants]
-Quantity.write_to_csv(quantities, saving, file_names)
+# Quantity.write_to_csv(quantities, saving, file_names)
 
 # Set up the colorbars and label the plots
 Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex)
@@ -588,12 +671,12 @@ if not os.path.exists(plot_path):
     os.makedirs(plot_path)
 
 # Save figure
-fig.savefig(f"{plot_path}/time_traces_{plot_coord}.png", bbox_inches="tight")
+fig.savefig(f"{plot_path}/time_traces_{plot_coord}_cs.png", bbox_inches="tight")
 
 # Create figure for the imposed velocity and left boundary over time
-fig_v_a, axs_v_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20/3), sharex=True)
-ax_v, ax_a = axs_v_a
-times = np.linspace(0, len(a_list) * delta_t, len(a_list))
+fig_v_a_b, axs_v_a_b = plt.subplots(nrows=3, ncols=1, figsize=(8, 30/3), sharex=True)
+ax_v, ax_a, ax_b = axs_v_a_b
+times = np.linspace(t_0, len(a_list) * delta_t + t_0, len(a_list))
 ax_v.plot(times, np.array(v_list),
           color='forestgreen', label='$v(t)$')
 # ax_a.plot(np.array(v_s_0_list), times,
@@ -608,5 +691,13 @@ ax_a.plot(times, np.array(a_list),
 ax_a.set_xlabel("Time")
 ax_a.set_ylabel("Left boundary")
 ax_a.legend()
-# ax_a.set_xlim(min(a_list), max(a_list))
-fig_v_a.savefig(f"{plot_path}/v_and_a.png", bbox_inches="tight")
+# ax_b.set_xlim(min(b_list), max(b_list))
+ax_b.plot(times, np.array(b_list),
+          color='darkgoldenrod', label='$b(t)$')
+# ax_b.plot(np.array(v_s_0_list), times,
+#           color='darkgoldenrod', label='$v_s(0)$')
+ax_b.set_xlabel("Time")
+ax_b.set_ylabel("Right boundary")
+ax_b.legend()
+# ax_b.set_xlim(min(b_list), max(b_list))
+fig_v_a_b.savefig(f"{plot_path}/v_a_and_b.png", bbox_inches="tight")
