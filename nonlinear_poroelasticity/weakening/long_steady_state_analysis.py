@@ -24,7 +24,7 @@ iterative = False
 Reading in our parameters and defining our paths
 """
 trial = "nondim_realistic_params"
-sub_trial = "below_gamma_crit"
+sub_trial = "gamma_crit"
 dir_path = f"resources/{trial}/{sub_trial}"
 data_path = f"{dir_path}/data"
 plot_path = f"{dir_path}/plots"
@@ -291,11 +291,12 @@ def solve_iterative(_phi_f_guess: np.array, _xi: np.array, _phi_l: float,
         if sum_squares < tol or i == _max_its:
             _phi_f_ss = _phi_f_guess
             _a_ss = a_guess
+            _B_ss = B_guess
             if i == _max_its:
                 print(f"Maximum iterations reached ({_max_its})")
             break
         i += 1
-    return _phi_f_ss, _a_ss
+    return _phi_f_ss, _a_ss, _B_ss
 
 
 def solve_analytic(_xi: np.array, _phi_l: float, _phi_f0: float, _nu: float,
@@ -310,13 +311,13 @@ def solve_analytic(_xi: np.array, _phi_l: float, _phi_f0: float, _nu: float,
         _B_ss = calculate_B(_phi_l, _phi_f0, _nu, _factor, 0.0)
         _phi_f_ss = calculate_phi(_xi, _phi_f0, _nu, _factor, 0.0, _B_ss)
         _a_ss = calculate_a(_phi_f_ss, _phi_f0, _xi)
-    return _phi_f_ss, _a_ss
+    return _phi_f_ss, _a_ss, _B_ss
 
 
 if iterative:
-    phi_f_ss, a_ss = solve_iterative(phi_f_guess, xi, phi_l, phi_f0, nu, factor)
+    phi_f_ss, a_ss, B_ss = solve_iterative(phi_f_guess, xi, phi_l, phi_f0, nu, factor)
 else:
-    phi_f_ss, a_ss = solve_analytic(xi, phi_l, phi_f0, nu, factor)
+    phi_f_ss, a_ss, B_ss = solve_analytic(xi, phi_l, phi_f0, nu, factor)
 
 
 def calculate_c(_phi_f: np.array, _a: float, _xi: np.array,
@@ -364,6 +365,23 @@ def calculate_u_s(_phi_f: np.array, _a: float, _xi: np.array, _phi_f0: float):
 c_ss = calculate_c(phi_f_ss, a_ss, xi, t_c, t_v, v_final, c_left)
 u_s_ss = calculate_u_s(phi_f_ss, a_ss, xi, phi_f0)
 
+
+def alternative_B(_phi_f0: float, _nu: float, _factor: float):
+    """A potential alternative method for calculating B.
+
+    :param _phi_f0: The initial porosity.
+    :param _nu: The Poisson's ratio.
+    :param _factor: The factor.
+    :return: An alternative way of calculating B.
+    """
+    denominator = 2 * (1 + _nu) * (1 - 2 * _nu)
+    term2 = 11 / 6 * (1 - _phi_f0) ** 2
+    term3 = - 3 / 2 * (1 - 2 * _nu)
+    return factor + (term2 + term3) / denominator
+
+
+alternative_B_ss = alternative_B(phi_f0, nu, factor)
+
 # Finally, we plot the prediction and the actual values of the final state for the
 # Young's modulus. We'll also plot the linearised version of phi alongside the actual
 # phi profile.
@@ -403,6 +421,8 @@ fig.savefig(f"{plot_path}/long_steady_state{it_text}.png", bbox_inches="tight")
 
 print(f"True value of a_inf: {a_final}")
 print(f"Predicted value of a_inf: {a_ss}")
+print(f"Predicted value of B: {B_ss}")
+print(f"Critical value of B: {alternative_B_ss}")
 
 gamma_crit = find_gamma_crit(phi_l, phi_f0, nu, E_min, v_final)
 print(f"Critical value of gamma: {gamma_crit}")

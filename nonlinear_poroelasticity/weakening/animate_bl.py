@@ -37,15 +37,15 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "nondim_realistic_params"
-sub_trial = "below_gamma_crit"
+trial = "long_steady_state"
+sub_trial = "v_0_1"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
 # Whether we produce a .gif or set of traces
-gif = False
+gif = True
 # Whether we plot on log-log axes or not
-log = True
+log = False
 log_text = "_log" if log else ""
 
 # Whether we'll plot on a fixed domain or not
@@ -109,7 +109,7 @@ latex_quants = ["log$(\\phi_{f})$" if log else "$\\phi_{f}$"]
 colours = ["blue"]
 data_path = f"resources/{trial}/{sub_trial}/data"
 plot_path = f"resources/{trial}/{sub_trial}/plots"
-file_names = [f"{data_path}/{q}_{plot_coord}.csv" for q in short_quants]
+file_names = [f"{data_path}/_{q}_{plot_coord}.csv" for q in short_quants]
 data_dict = {}
 for i, name in enumerate(short_quants):
     data_arr = pd.read_csv(file_names[i]).to_numpy()
@@ -187,7 +187,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-period = 0.1
+period = 0.0001
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -216,9 +216,9 @@ if not gif:
     phi_f.set_ax(axs_list[0])
 
 early_label = "Early boundary layer"
-late_label = "Late boundary layer"
-late_extra_label = "Late boundary layer (new)"
-fenics_label = "FEniCS solution"
+late_label = "$\\tilde{\\Phi}_{f,0}$"
+late_extra_label = "$\\tilde{\\Phi}_{f,0} + \\tilde{\\epsilon}\\tilde{\\Phi}_{f,1}$"
+fenics_label = "FEniCS solution ($\\phi_f$)"
 n_end = int(N_time * delta_t / period) + 1
 
 for n in range(n_end):
@@ -269,17 +269,17 @@ for n in range(n_end):
             line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color=colours[i], label=fenics_label)
             ax.set_xlabel(plot_coord_tex)
             ax.set_ylabel(latex_quants[i])
-            ax.set_xlim(-5, xmax)
+            ax.set_xlim(xmin, xmax)
             ax.set_ylim(mins[i], maxes[i])
             ax.set_title(f"Time = {round(t, 3)}")
         else:
             phi_f.f_fixed = fenics_arr_n
-            # line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--r",
-            #                         label=early_label if n == 0 else None)
+            line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--r",
+                                    label=early_label if n == 0 else None)
             line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r",
                                    label=late_label if n == 0 else None)
-            line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, "--y",
-                                         label=late_extra_label if n == 0 else None)
+            line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, linestyle='--',
+                                         color='goldenrod', label=late_extra_label if n == 0 else None)
             line_fenics = phi_f.plot(norm, t, fixed_domain=True,
                                      label=fenics_label if n == 0 else None)
         ax.legend()

@@ -51,8 +51,8 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "nondim_realistic_params"
-sub_trial = "lower_bound"
+trial = "long_steady_state"
+sub_trial = "v_0_1"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -63,7 +63,7 @@ plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
 num_quants = 6
 
 # Whether to save data or not
-saving = [True] * num_quants
+saving = [False] * num_quants
 
 """
 Computational parameters
@@ -143,8 +143,11 @@ t_phi_num, t_E_num, t_c_num = nums(t_phi, t_E, t_c)
 a_list = [params["ics"]["a"]]
 
 # Imposed phase-averaged velocity
-vt = Expression(params["v"]["expr"],
-                degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
+# vt = Expression(params["v"]["expr"],
+#                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
+# Imposed fluid flux
+Q_f = Expression(params["v"]["expr"],
+                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
 
 """
 Create the mesh
@@ -234,16 +237,46 @@ u_s = Quantity("$u_s$", "Greens", 4, mesh)
 # Set up the functions from the joint space
 v_phi, v_E, v_c, v_sigma, v_us, v_a = TestFunctions(V)
 
+
+def retrieve_ic(_xi, data_array: np.array):
+    """If we wish to set up initial conditions with a numpy
+    array, this function will be used in the interpolation.
+
+    :param _xi: The FEniCS coordinate
+    :param data_array: The data array
+    :return: The value of the function at the specific coordinate
+    """
+    _N_x = len(data_array)
+    index = int(float(_xi) * _N_x)
+    return data_array[index]
+
+
+short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
+data_path = f"resources/{trial}/{sub_trial}/data"
+# ic_file_names = [f"{data_path}/{q}_xi.csv" for q in short_quants]
+# ics = [pd.read_csv(ic_file_names[i]).to_numpy()[:, -1]
+#        for i in range(len(short_quants))]
+
 # Define the initial conditions
+phi_f0_ic = 'phi_f0 - gamma * (1 - phi_f0) * (1 + nu) * (1 - 2 * nu) / (1 - nu) * x[0]'
 w_0 = Expression(('phi_f0', params["ics"]["E"], params["ics"]["c"],
                   '0.0', params["ics"]["u_s"], 'a_0'),
-                 degree=1, phi_f0=phi_f0, a_0=a_list[0], E_min=E_min)
+                 degree=1, phi_f0=phi_f0, a_0=a_list[0],
+                 E_min=E_min, gamma=t_phi_num/t_v_num, nu=nu)
 w_old = project(w_0, V)
 
-
+# w_old = Function(V)
 w = Function(V)
 w_phi, w_E, w_c, w_sigma, w_us, a = split(w)
 phi_old, E_old, c_old, sigma_old, u_s_old, a_old = split(w_old)
+# _phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old = w_old.split()
+# w_old_list = [_phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old]
+#
+# # Set the initial conditions
+# for i, f_old in enumerate(w_old_list):
+#     f_old.interpolate(lambda y: retrieve_ic(y, ics[i]))
+# _a_old.interpolate(lambda y: retrieve_ic(y, a_list))
+
 phi_f.f, E.f, c.f, sigma.f, u_s.f, a_f = w_old.split(deepcopy=True)
 phi_f.set_sym_functions(w_phi, v_phi, phi_old)
 E.set_sym_functions(w_E, v_E, E_old)
@@ -346,6 +379,10 @@ if "c_left" in params["bcs"]:
     bc_left_c = DirichletBC(V.sub(2), params["bcs"]["c_left"], left)
     c.add_bc(bc_left_c)
     bcs.append(bc_left_c)
+if "c_right" in params["bcs"]:
+    bc_right_c = DirichletBC(V.sub(2), params["bcs"]["c_right"], right)
+    c.add_bc(bc_right_c)
+    bcs.append(bc_right_c)
 if "u_s_right" in params["bcs"]:
     bc_right_us = DirichletBC(V.sub(4), params["bcs"]["u_s_right"], right)
     u_s.add_bc(bc_right_us)
@@ -390,12 +427,12 @@ param_file.close()
 
 def get_vs_from_E_phi(_mesh, _phi_f, _E, _a, _phi_f0, _nu, 
                       _t_v, _t_vs, _t_phi):
-    _, vt_arr = fenics_to_numpy(_mesh, vt)
+    _, Q_f_arr = fenics_to_numpy(_mesh, Q_f)
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, E_arr = fenics_to_numpy(_mesh, _E)
     k_e_arr = compute_k_e(phi_f_arr, _phi_f0)
     g_arr = compute_g(phi_f_arr, _phi_f0, _nu)
-    return (vt_arr / _t_v +
+    return (Q_f_arr / _t_v +
             phi_f_arr * k_e_arr * np.gradient(E_arr * g_arr, xi_arr)
             / ((1 - _a) * (1 - phi_f_arr) * _t_phi)) * _t_vs
     # return (phi_f_arr * k_e_arr * np.gradient(E_arr * g_arr, xi_arr)
@@ -432,7 +469,7 @@ def get_sigma_from_E_g(_mesh, _E, _g, _phi_f0):
 # E.f = Constant(params["ics"]["E"])
 # sigma.f = Constant(0.0)
 v_s_ = Quantity("$v_{s}$", "YlOrBr", 7, mesh)
-v_s_.f = (t_v_s_num / t_v_num) * vt
+v_s_.f = (t_v_s_num / t_v_num) * Q_f
 quantities = [phi_f, E, c, sigma, u_s, v_s_]
 
 
@@ -463,59 +500,71 @@ for quantity in quantities:
 Quantity.plot_quantities(quantities, norm, 0.0, saving)
 
 # define the time derivatives
-dphi_dt = (phi_f.g - phi_f.g_old) / delta_t
-dE_dt = (E.g - E.g_old) / delta_t
-# dsigma_dt = (sigma.g - sigma.g_old) / delta_t
-dc_dt = (c.g - c.g_old) / delta_t
+dphi_dt = (phi_f.u - phi_f.u_old) / delta_t
+dE_dt = (E.u - E.u_old) / delta_t
+# dsigma_dt = (sigma.u - sigma.u_old) / delta_t
+dc_dt = (c.u - c.u_old) / delta_t
 da_dt = (a - a_old) / delta_t
-dus_dt = (u_s.g - u_s.g_old) / delta_t
+dus_dt = (u_s.u - u_s.u_old) / delta_t
 
-k_e.g = compute_k_e(phi_f.g, phi_f0)
-g.g = compute_g(phi_f.g, phi_f0, nu)
-# dg_dphi = compute_dg_dphi(phi_f.g, phi_f0, nu)
-# E.g = (1 - phi_f0) * sigma.g / g.g
+k_e.u = compute_k_e(phi_f.u, phi_f0)
+g.u = compute_g(phi_f.u, phi_f0, nu)
+# dg_dphi = compute_dg_dphi(phi_f.u, phi_f0, nu)
+# E.u = (1 - phi_f0) * sigma.u / g.u
 
-# dE_dt = (1 - phi_f0) * (dsigma_dt / g.g - sigma.g / g.g ** 2 * dg_dphi * dphi_dt)
+# dE_dt = (1 - phi_f0) * (dsigma_dt / g.u - sigma.u / g.u ** 2 * dg_dphi * dphi_dt)
+
+vt = t_v * (Q_f / t_v_f + 0.1 * da_dt / t_sc)
+dEg_dx = g.u * E.u.dx(0) + E.u * compute_dg_dphi(phi_f.u, phi_f0, nu) * phi_f.u.dx(0)
 
 # Find intermediate expressions for the solid and fluid velocities
 v_s = t_v_s * (vt / t_v +
-               phi_f.g * k_e.g * (E.g * g.g).dx(0) / ((1 - a) * (1 - phi_f.g) * t_phi))
-v_f = t_v_f * (vt / t_v - k_e.g * (E.g * g.g).dx(0) / ((1 - a) * t_phi))
+               phi_f.u * k_e.u * dEg_dx / ((1 - a) * (1 - phi_f.u) * t_phi))
+v_f = t_v_f * (vt / t_v - k_e.u * dEg_dx / ((1 - a) * t_phi))
 
 """
 Define the weak form
 """
 
 # Weak form for the phi equation
-Fun_phi = ((dphi_dt - da_dt * phi_f.g / (1 - a)) * phi_f.v / t_sc * dx +
-           ((1 / (1 - a))**2 * phi_f.g * k_e.g * (E.g * g.g).dx(0) / t_phi -
-            (1 / (1 - a)) * phi_f.g * (vt / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
-           (vt / t_v - (1 - xi) * da_dt / t_sc) * phi_f.v / (1 - a) * ds)
+# Fun_phi = ((dphi_dt + - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
+#            ((1 / (1 - a))**2 * phi_f.u * k_e.u * dEg_dx / t_phi -
+#             (1 / (1 - a)) * phi_f.u * (vt / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
+#            (1 / (1 - a)) * (vt / t_v - (1 - xi) * da_dt / t_sc) * phi_f.v * ds)
+# Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
+#            ((1 / (1 - a))**2 * phi_f.u * k_e.u * dEg_dx / t_phi -
+#             (1 / (1 - a)) * phi_f.u * (Q_f / t_v_f + xi * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
+#            (Q_f / t_v_f + xi * da_dt / t_sc) * phi_f.v / (1 - a) * ds)
+Fun_phi = (((dphi_dt - da_dt * (1 - xi) / (1 - a) * phi_f.u.dx(0)) / t_sc +
+            1 / (1 - a) * (phi_f.u * v_s).dx(0) / t_v_s) * phi_f.v * dx +
+           v_s / (1 - a) * phi_f.v.dx(0) / t_v_s * dx +
+           (1 - xi) * da_dt * phi_f.v / t_sc * ds)
 
-# Fun_sigma = (sigma_l - (E.g * g.g) / (1 - phi_f0)) * (1 - xi) * sigma.v * ds
+# Fun_sigma = (sigma_l - (E.u * g.u) / (1 - phi_f0)) * (1 - xi) * sigma.v * ds
 
 # Weak form for the E equation
-Fun_E = (dE_dt / t_sc + c.g * (E.g - E_min) / t_E
-         + (v_s / t_v_s - (1 - xi) * da_dt / t_sc) / (1 - a) * E.g.dx(0)) * E.v * dx
-# Fun_E = dE_dt * E.v / t_sc * dx + c.g * (E.g - E_min) * E.v / t_E * dx
+Fun_E = (dE_dt / t_sc + c.u * (E.u - E_min) / t_E
+         + (v_s / t_v_s - (1 - xi) * da_dt / t_sc) / (1 - a) * E.u.dx(0)) * E.v * dx
+# Fun_E = dE_dt * E.v / t_sc * dx + c.u * (E.u - E_min) * E.v / t_E * dx
 
 # Weak form for the c equation
-Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g -
-          da_dt * c.g * phi_f.g / (1 - a)) / t_sc * c.v * dx +
-         phi_f.g / (1 - a) *
-         (c.g.dx(0) / ((1 - a) * t_c) -
-          (v_f / t_v_f - (1 - xi) * da_dt / t_sc) * c.g) * c.v.dx(0) * dx)
+Fun_c = ((phi_f.u * dc_dt + dphi_dt * c.u -
+          da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v * dx +
+         phi_f.u / (1 - a) *
+         (c.u.dx(0) / ((1 - a) * t_c) -
+          (v_f / t_v_f - (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0) * dx)
 
 # Weak form for the Terzaghi stress (sort of Lagrange multiplier)
-Fun_sigma = (sigma.g - (E.g * g.g) / (1 - phi_f0)) * sigma.v * dx
+Fun_sigma = (sigma.u - (E.u * g.u) / (1 - phi_f0)) * sigma.v * dx
 
 # Weak form for the displacement
-Fun_us = ((u_s.g.dx(0) * u_s.v -
-           (phi_f.g - phi_f0) * (1 - a) / (1 - phi_f0) * u_s.v) * dx)
+Fun_us = ((u_s.u.dx(0) * u_s.v -
+           (phi_f.u - phi_f0) * (1 - a) / (1 - phi_f0) * u_s.v) * dx)
 
-# Weak form for the moving boundary (both forms below are valid)
-Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a)) * v_a * dx
+# Weak form for the moving boundary
+Fun_a = (phi_f.u - 1 + (1 - phi_f0) / (1 - a)) * v_a * dx
 # Fun_a = ((1 - xi) / t_sc * da_dt - 1 / t_v_s * v_s) * v_a * ds
+# Fun_a = xi * (Q_f / t_v + da_dt / t_sc - phi_f.u * v_f / t_v) * v_a * ds
 
 # Combining the weak forms
 Fun = Fun_phi + Fun_E + Fun_c + Fun_us + Fun_a + Fun_sigma
@@ -527,14 +576,14 @@ jacobian = derivative(Fun, w)
 """
 Loop over time steps and solve
 """
-v_list = [float(vt(0.0))]
+Q_f_list = [float(Q_f(0.0))]
 for n in range(N_time):
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
     print("Time:", np.round(n * delta_t, 3))
 
     # Update some variables
-    vt.t = n * delta_t
+    Q_f.t = n * delta_t
 
     # Solve
     solver.solve()
@@ -546,13 +595,16 @@ for n in range(N_time):
     a_list.append(a_f(0.0))
     v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
                                t_v_s_num, t_sc_num)
-    v_list.append(float(vt(0.0)))
+    Q_f_list.append(float(Q_f(0.0)))
     w_old.assign(w)
 
     # Change coordinates onto the fixed domain for plotting
     (phi_f.f_fixed, E.f_fixed, c.f_fixed, sigma.f_fixed,
      u_s.f_fixed, v_s_.f_fixed) = xi_t_to_x_t(mesh, a_list[-1], phi_f, E,
                                               c, sigma, u_s, v_s_)
+    # Now make da_dt non-zero for all the rest of the iterations
+    # da_dt.assign(da_dt_new)
+
     # plot at the current timepoint if needed
     if phi_f.f_fixed[-1] < 0.0:
         phi_f.f_fixed[-1] = 0.0
@@ -572,11 +624,9 @@ for n in range(N_time):
         break
 
 # Save all relevant quantities
-short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
-data_path = f"resources/{trial}/{sub_trial}/data"
 if any(saving) and not os.path.isdir(data_path):
     os.makedirs(data_path)
-file_names = [f"{data_path}/{q}_{plot_coord}.csv" for q in short_quants]
+file_names = [f"{data_path}/_{q}_{plot_coord}.csv" for q in short_quants]
 Quantity.write_to_csv(quantities, saving, file_names)
 
 # Set up the colorbars and label the plots
@@ -588,13 +638,13 @@ if not os.path.exists(plot_path):
     os.makedirs(plot_path)
 
 # Save figure
-fig.savefig(f"{plot_path}/time_traces_{plot_coord}.png", bbox_inches="tight")
+fig.savefig(f"{plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
 
 # Create figure for the imposed velocity and left boundary over time
 fig_v_a, axs_v_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20/3), sharex=True)
 ax_v, ax_a = axs_v_a
 times = np.linspace(0, len(a_list) * delta_t, len(a_list))
-ax_v.plot(times, np.array(v_list),
+ax_v.plot(times, np.array(Q_f_list),
           color='forestgreen', label='$v(t)$')
 # ax_a.plot(np.array(v_s_0_list), times,
 #           color='darkviolet', label='$v_s(0)$')
@@ -609,4 +659,4 @@ ax_a.set_xlabel("Time")
 ax_a.set_ylabel("Left boundary")
 ax_a.legend()
 # ax_a.set_xlim(min(a_list), max(a_list))
-fig_v_a.savefig(f"{plot_path}/v_and_a.png", bbox_inches="tight")
+fig_v_a.savefig(f"{plot_path}/_v_and_a.png", bbox_inches="tight")

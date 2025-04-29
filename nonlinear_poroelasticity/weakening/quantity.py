@@ -35,7 +35,7 @@ class Quantity:
         self._expression = expression
         self.f = None
         self.f_fixed = None
-        self.g = None
+        self.u = None
         self.create_functions_from_mesh(mesh)
         self.interpolate()
         self.ax = None
@@ -55,23 +55,23 @@ class Quantity:
             self.V = FunctionSpace(mesh, FiniteElement("Lagrange", interval, 1))
             self.f = Function(self.V)
             self.v = TestFunction(self.V)
-            self.g_old = Function(self.V)
-            self.g = self.f
+            self.u_old = Function(self.V)
+            self.u = self.f
 
-    def set_sym_functions(self, g: None, v: None, g_old: None):
+    def set_sym_functions(self, u: None, v: None, u_old: None):
         """If we wish to set the functions manually, we can set these using the
         above parameters.
 
-        :param g: The function.
+        :param u: The function.
         :param v: The test function.
-        :param g_old: The old function (at previous timestep).
+        :param u_old: The old function (at previous timestep).
         """
-        if g is not None:
-            self.g = g
+        if u is not None:
+            self.u = u
         if v is not None:
             self.v = v
-        if g_old is not None:
-            self.g_old = g_old
+        if u_old is not None:
+            self.u_old = u_old
 
     def initialise_dataframe(self, x_array: np.array):
         """Initialises the dataframe (storing the time history of the quantity)
@@ -96,11 +96,11 @@ class Quantity:
         condition.
         """
         if isinstance(ic, np.ndarray):
-            self.g.vector().set_local(ic)
+            self.u.vector().set_local(ic)
         else:
-            self.g.interpolate(ic)
-        self.g_old.assign(self.g)
-        _, self.array = self.fenics_to_numpy(self._mesh, self.g)
+            self.u.interpolate(ic)
+        self.u_old.assign(self.u)
+        _, self.array = self.fenics_to_numpy(self._mesh, self.u)
 
     def solve(self, weak_form: Function):
         """Solves the quantity one step forward in time for the given weak form.
@@ -108,15 +108,15 @@ class Quantity:
         :param weak_form: The given expression for the numerical solver.
         """
         # Define the Jacobian, problem and solver
-        jacobian = derivative(weak_form, self.g)
-        problem = NonlinearVariationalProblem(weak_form, self.g, self._bcs, jacobian)
+        jacobian = derivative(weak_form, self.u)
+        problem = NonlinearVariationalProblem(weak_form, self.u, self._bcs, jacobian)
         solver = NonlinearVariationalSolver(problem)
 
         # Solve the problem
         solver.solve()
 
         # Update the old solution
-        self.g_old.assign(self.g)
+        self.u_old.assign(self.u)
 
     @staticmethod
     def fenics_to_numpy(_mesh: Mesh, f: Function):
