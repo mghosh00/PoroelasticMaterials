@@ -353,24 +353,24 @@ Define the weak form
 """
 
 # Weak form for the phi equation
-Fun_phi = ((dphi_dt - da_dt * phi_f.g / (L - a)) * phi_f.v * dx +
+Fun_phi = ((dphi_dt - da_dt * phi_f.g / (L - a)) * phi_f.v_0 * dx +
            ((1 / (L - a))**2 * phi_f.g * k_e.g * (E.g * sigma_e.g).dx(0) -
-            (1 / (L - a)) * phi_f.g * (vt - (1 - xi) * da_dt)) * phi_f.v.dx(0) * dx +
-           (vt - (1 - xi) * da_dt) * phi_f.v / (L - a) * ds)
+            (1 / (L - a)) * phi_f.g * (vt - (1 - xi) * da_dt)) * phi_f.v_0.dx(0) * dx +
+           (vt - (1 - xi) * da_dt) * phi_f.v_0 / (L - a) * ds)
 
 # Weak form for the E equation
 Fun_E = (dE_dt + beta_E * c.g * E.g
-         + (v_s - (1 - xi) * da_dt) / (L - a) * E.g.dx(0)) * E.v * dx
+         + (v_s - (1 - xi) * da_dt) / (L - a) * E.g.dx(0)) * E.v_0 * dx
 # Fun_E = dE_dt * E.v * dx + beta_E * c.g * E.g * E.v * dx
 
 # Weak form for the c equation
 Fun_c = ((phi_f.g * dc_dt + dphi_dt * c.g + da_dt * c.g *
-          ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a)) * c.v * dx +
-         phi_f.g / (L - a) * (D_m * c.g.dx(0) / (L - a) - v_f * c.g) * c.v.dx(0) * dx)
+          ((1 - xi) * phi_f.g.dx(0) - phi_f.g) / (L - a)) * c.v_0 * dx +
+         phi_f.g / (L - a) * (D_m * c.g.dx(0) / (L - a) - v_f * c.g) * c.v_0.dx(0) * dx)
 
 # Weak form for the displacement
-Fun_us = ((u_s.g.dx(0) * u_s.v -
-           (phi_f.g - phi_f0) * (L - a) / (1 - phi_f0) * u_s.v) * dx)
+Fun_us = ((u_s.g.dx(0) * u_s.v_0 -
+           (phi_f.g - phi_f0) * (L - a) / (1 - phi_f0) * u_s.v_0) * dx)
 # Fun_us = ((u_s.g * u_s.v.dx(0) +
 #            (phi_f.g - phi_f0) / ((1 - phi_f0) * (L - a)) * u_s.v) * dx -
 #           a * u_s.v * (1 - xi) * ds)

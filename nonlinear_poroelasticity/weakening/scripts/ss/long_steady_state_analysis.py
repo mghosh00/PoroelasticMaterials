@@ -23,8 +23,8 @@ iterative = False
 """
 Reading in our parameters and defining our paths
 """
-trial = "nondim_realistic_params"
-sub_trial = "gamma_crit"
+trial = "long_steady_state"
+sub_trial = "v_0_1"
 dir_path = f"resources/{trial}/{sub_trial}"
 data_path = f"{dir_path}/data"
 plot_path = f"{dir_path}/plots"
@@ -70,11 +70,11 @@ def final_array(path: str):
 
 
 # Find the final value of a(t) --- this comes from the u_s_array
-u_s_final = final_array(f"{data_path}/u_s_xi.csv")
+u_s_final = final_array(f"{data_path}/u_s.csv")
 a_final = u_s_final[0]
 
-phi_f_final = final_array(f"{data_path}/phi_xi.csv")
-c_final = final_array(f"{data_path}/c_xi.csv")
+phi_f_final = final_array(f"{data_path}/phi.csv")
+c_final = final_array(f"{data_path}/c.csv")
 x = np.linspace(1 - (len(phi_f_final) - 1) / N_x, 1, len(phi_f_final))
 xi = np.linspace(0, 1, N_x + 1)
 
@@ -210,11 +210,11 @@ def calculate_phi(_xi: np.array, _phi_f0: float, _nu: float, _factor: float,
     :param _B: The guess for the integration constant, B.
     :return: The array phi_f.
     """
-    phi_f_initial = np.array([phi_f0] * len(_xi))
+    phi_f_initial = np.array([_phi_f0] * len(_xi))
     phi_f_list = []
     for i in range(len(_xi)):
         phi_f_i = so.fsolve(F, phi_f_initial[i],
-                            args=(_phi_f0, _nu, _B, factor, _a, _xi[i]))
+                            args=(_phi_f0, _nu, _B, _factor, _a, _xi[i]))
         phi_f_list.append(phi_f_i[0])
     phi_f = np.array(phi_f_list)
     return phi_f
@@ -303,7 +303,7 @@ def solve_analytic(_xi: np.array, _phi_l: float, _phi_f0: float, _nu: float,
                    _factor: float):
     phi_r = so.fsolve(F_phi_r, _phi_f0,
                       args=(_phi_l, _phi_f0, _nu, _factor))[0]
-    if factor > 0.0:
+    if _factor > 0.0:
         _a_ss = calculate_a_alt(float(phi_r), _phi_l, _phi_f0, _nu, _factor)
         _B_ss = calculate_B(_phi_l, _phi_f0, _nu, _factor, _a_ss)
         _phi_f_ss = calculate_phi(_xi, _phi_f0, _nu, _factor, _a_ss, _B_ss)
@@ -377,7 +377,7 @@ def alternative_B(_phi_f0: float, _nu: float, _factor: float):
     denominator = 2 * (1 + _nu) * (1 - 2 * _nu)
     term2 = 11 / 6 * (1 - _phi_f0) ** 2
     term3 = - 3 / 2 * (1 - 2 * _nu)
-    return factor + (term2 + term3) / denominator
+    return _factor + (term2 + term3) / denominator
 
 
 alternative_B_ss = alternative_B(phi_f0, nu, factor)
@@ -417,7 +417,7 @@ ax_us.set_ylabel("$u_s$")
 
 # Saving the figure
 it_text = "_it" if iterative else ""
-fig.savefig(f"{plot_path}/long_steady_state{it_text}.png", bbox_inches="tight")
+fig.savefig(f"{plot_path}/_long_steady_state{it_text}.png", bbox_inches="tight")
 
 print(f"True value of a_inf: {a_final}")
 print(f"Predicted value of a_inf: {a_ss}")

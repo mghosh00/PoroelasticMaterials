@@ -365,18 +365,18 @@ Define the weak form
 
 # Weak form for the phi equation
 Fun_phi = ((t_phi / t_v * vt * phi_f.g - k_e.g * (E.g * sigma_e.g).dx(0) / (1 - a) * phi_f.g)
-           * phi_f.v.dx(0) * dx) - t_phi / t_v * vt * phi_f.v * ds
+           * phi_f.v_0.dx(0) * dx) - t_phi / t_v * vt * phi_f.v_0 * ds
 # Fun_phi = (phi_f.g - phi_f0) * phi_f.v * dx
 
 # Weak form for the E equation
-Fun_E = (E.g - E_min) * E.v * dx
+Fun_E = (E.g - E_min) * E.v_0 * dx
 
 # Weak form for the c equation
-Fun_c = (t_c / t_v * vt * c.g - phi_f.g / (1 - a) * c.g.dx(0)) * c.v.dx(0) * dx
+Fun_c = (t_c / t_v * vt * c.g - phi_f.g / (1 - a) * c.g.dx(0)) * c.v_0.dx(0) * dx
 
 # Weak form for the displacement
-Fun_us = ((u_s.g.dx(0) * u_s.v -
-           (phi_f.g - phi_f0) * (1 - a) / (1 - phi_f0) * u_s.v) * dx)
+Fun_us = ((u_s.g.dx(0) * u_s.v_0 -
+           (phi_f.g - phi_f0) * (1 - a) / (1 - phi_f0) * u_s.v_0) * dx)
 
 # Weak form for the moving boundary
 Fun_a = (phi_f.g - 1 + (1 - phi_f0) / (1 - a)) * v_a * dx
