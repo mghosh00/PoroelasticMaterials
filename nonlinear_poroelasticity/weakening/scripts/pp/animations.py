@@ -8,7 +8,7 @@ import json
 from PIL import Image
 import time
 
-from quantity import Quantity
+from nonlinear_poroelasticity.weakening.scripts import Quantity, calculate_c, get_phi_l, solve_analytic
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
@@ -16,8 +16,8 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "nondim_realistic_params"
-sub_trial = "lower_bound"
+trial = "long_steady_state"
+sub_trial = "v_0_1"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -44,18 +44,52 @@ N_time = params["comp"]["N_time"]
 N_x = params["comp"]["N_x"]
 
 """
+Physical parameters
+"""
+phi_f0 = params["ics"]["phi_f"]
+
+L = params["phys"]["L"]
+nu = params["phys"]["nu"]
+mu = params["phys"]["mu"]
+E_min = params["phys"]["E_min"]
+D_m = params["phys"]["D_m"]
+
+k_0 = params["scales"]["k"]
+E_star = params["scales"]["E"]
+v_star = params["scales"]["v"]
+
+Q_f_final = params["v"]["v_final"]
+
+c_left = params["bcs"]["c_left"]
+sigma_l = params["bcs"]["sigma_left"]
+
+param_file.close()
+
+t_phi = (mu * L ** 2) / (k_0 * E_star)
+t_v = L / v_star
+t_c = L ** 2 / D_m
+
+"""
 Read in quantity .csv files.
 """
 short_quants = ["phi", "E", "c", "sigma", "u_s", "v_s"]
 data_path = f"resources/{trial}/{sub_trial}/data"
 plot_path = f"resources/{trial}/{sub_trial}/plots"
-file_names = [f"{data_path}/{q}_{plot_coord}.csv" for q in short_quants]
+file_names = [f"{data_path}/_{q}_{plot_coord}.csv" for q in short_quants]
 data_dict = {}
 for i, name in enumerate(short_quants):
     data_arr = pd.read_csv(file_names[i]).to_numpy()
     coord_arr = data_arr[:, 1]
     quant_arr_nan = data_arr[:, 2:]
     data_dict[name] = quant_arr_nan
+
+# Find the analytical steady state for the porosity, Young's modulus and solute concentration
+phi_l = get_phi_l(sigma_l, E_min, phi_f0, nu)
+factor = (t_phi * Q_f_final * phi_f0 ** 3) / (t_v * E_min * (1 - phi_f0))
+phi_f_ss, a_ss, B_ss = solve_analytic(coord_arr, phi_l, phi_f0, nu, factor)
+E_ss = np.array([E_min] * (N_x + 1))
+c_ss = calculate_c(phi_f_ss, a_ss, coord_arr, t_c, t_v, Q_f_final, c_left)
+ss_arrs = [phi_f_ss, E_ss, c_ss]
 
 """
 Define the solutions phi_f, E and c
@@ -88,18 +122,18 @@ Loop over time steps and plot each frame
 if not os.path.exists(f"{plot_path}/frames"):
     os.makedirs(f"{plot_path}/frames")
 
-
 images = []
-period = 0.0005
+# The time step between each frame
+period = 0.001
 
 # Set up the colorbars and label the plots
-quant_names = ["phi"]
+quant_names = ["phi", "E", "c"]
 mins = np.array([np.min(data_dict[name]) for name in quant_names])
 maxes = np.array([np.max(data_dict[name]) for name in quant_names])
 ranges = maxes - mins
 mins -= 0.1 * ranges
 maxes += 0.1 * ranges
-nrows, ncols = 1, 1
+nrows, ncols = 3, 1
 quantities = [quantities[name] for name in quant_names]
 
 for n in range(int(N_time * delta_t / period)):
@@ -109,26 +143,29 @@ for n in range(int(N_time * delta_t / period)):
     """
     # fig, axs = plt.subplots(nrows=4, ncols=1, figsize=(4, 40/3), sharex=True)
     # fig, axs = plt.subplots(nrows=5, ncols=1, figsize=(4, 50/3), sharex=True)
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, (10 * nrows)/3), sharex=True)
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6, (10 * nrows)/3), sharex=True)
     plt.subplots_adjust(wspace=1.0 * (ncols - 1))
     # axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
-    axs_list = [axs]
+    axs_list = axs
     Quantity.set_axs(quantities, axs_list)
     norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
-
-    print("Time:", np.round(n * period, 3))
+    t = np.round(n * period, 3)
+    print("Time:", t)
 
     # Set up the correct arrays for the timepoint
     for i, name in enumerate(quant_names):
         quantity = quantities[i]
         quantity_arr_n = data_dict[name][:, m]
         quantity.f = quantity_arr_n
+        axs_list[i].plot(coord_arr, ss_arrs[i], "--k", label="Analytical steady state")
+        axs_list[i].legend()
 
     # plot at the current timepoint
     lines = Quantity.plot_quantities(quantities, norm, m * delta_t, fixed_domain=fixed_domain)
 
     Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex,
-                            mins=mins, maxes=maxes)
+                            mins=mins, maxes=maxes,
+                            titles=[f"$t={t:.3f}$"] + [None] * (len(quant_names) - 1))
 
     # Save figure
     frame_path = f"{plot_path}/frames/frame_{n}.png"
@@ -181,7 +218,7 @@ def update(frame_no: int):
 
 # Make the .gif and delete the frames directory
 images[0].save(f"{plot_path}/{quant_names[0]}_animated.gif", save_all=True,
-               append_images=images[1:], duration=100, loop=0)
+               append_images=images[1:], duration=80, loop=0)
 os.rmdir(f"{plot_path}/frames")
 
 # ani.save(filename=f"{plot_path}/phi_f_animated.gif", writer="pillow")

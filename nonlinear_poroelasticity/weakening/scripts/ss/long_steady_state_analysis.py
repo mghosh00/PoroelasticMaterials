@@ -70,11 +70,11 @@ def final_array(path: str):
 
 
 # Find the final value of a(t) --- this comes from the u_s_array
-u_s_final = final_array(f"{data_path}/u_s.csv")
+u_s_final = final_array(f"{data_path}/_u_s_xi.csv")
 a_final = u_s_final[0]
 
-phi_f_final = final_array(f"{data_path}/phi.csv")
-c_final = final_array(f"{data_path}/c.csv")
+phi_f_final = final_array(f"{data_path}/_phi_xi.csv")
+c_final = final_array(f"{data_path}/_c_xi.csv")
 x = np.linspace(1 - (len(phi_f_final) - 1) / N_x, 1, len(phi_f_final))
 xi = np.linspace(0, 1, N_x + 1)
 

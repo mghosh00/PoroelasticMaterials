@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 
-from quantity import Quantity
+from nonlinear_poroelasticity.weakening.scripts import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True

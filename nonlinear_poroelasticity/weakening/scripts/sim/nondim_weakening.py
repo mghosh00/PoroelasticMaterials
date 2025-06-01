@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 
-from quantity import Quantity
+from nonlinear_poroelasticity.weakening.scripts import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
@@ -56,13 +56,13 @@ param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
 # Whether we'll plot on a fixed domain or not
-fixed_domain = False
+fixed_domain = True
 plot_coord = "x" if fixed_domain else "xi"
 plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
 num_quants = 8
 
 # Whether to save data or not
-saving = [False] * num_quants
+saving = [True] * num_quants
 
 """
 Computational parameters
@@ -78,8 +78,8 @@ N_time = params["comp"]["N_time"]
 N_x = params["comp"]["N_x"]
 
 # The frequency of plotting
-# num_lines = N_time / 1
-num_lines = 50
+num_lines = N_time / 1
+# num_lines = 50
 plotting_freq = int(N_time / num_lines)
 
 """
@@ -690,29 +690,28 @@ fig.savefig(f"{plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
 # fig.savefig(f"{plot_path}/time_traces_constant_flux.png", bbox_inches="tight")
 
 # Create figure for the imposed velocity and left boundary over time
-fig_Q_a_v, axs_Q_a_v = plt.subplots(nrows=3, ncols=1, figsize=(8, 30/3), sharex=True)
-ax_Q, ax_a, ax_v = axs_Q_a_v
+fig_Q_a, axs_Q_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20/3), sharex=True)
+ax_Q, ax_a = axs_Q_a
 times = np.linspace(0, len(a_list) * delta_t, len(a_list))
-ax_Q.plot(times, np.array(Q_f_list),
-          color='forestgreen', label='$Q_f(t)$')
+ax_Q.plot(times, np.array(Q_f_list), lw=2,
+          color='forestgreen')
 # ax_a.plot(np.array(v_s_0_list), times,
 #           color='darkviolet', label='$v_s(0)$')
-ax_Q.set_ylabel("Imposed velocity")
-ax_Q.legend()
+ax_Q.set_ylabel("$Q_f(t)$")
 # a_expected = times * params["v"]["v_final"] * params["scales"]["t"] / t_v_num
-ax_a.plot(times, np.array(a_list),
-          color='darkviolet', label='$a(t)$')
+ax_a.plot(times, np.array(a_list), lw=2,
+          color='darkgoldenrod')
 # ax_a.plot(np.array(v_s_0_list), times,
 #           color='darkviolet', label='$v_s(0)$')
-ax_a.set_ylabel("Left boundary")
-ax_a.legend()
+ax_a.set_ylabel("$a(t)$")
+ax_a.set_xlabel("$t$")
 # ax_a.set_xlim(min(a_list), max(a_list))
-ax_v.plot(times, np.array(Q_f_list) + t_v_num / t_sc_num * np.gradient(np.array(a_list), times),
-          color='darkgoldenrod', label='$v(t)$')
+# ax_v.plot(times, np.array(Q_f_list) + t_v_num / t_sc_num * np.gradient(np.array(a_list), times),
+#           color='darkgoldenrod', label='$v(t)$')
 # ax_a.plot(np.array(v_s_0_list), times,
 #           color='darkviolet', label='$v_s(0)$')
-ax_v.set_xlabel("Time")
-ax_v.set_ylabel("Phase-averaged velocity")
-ax_v.legend()
-fig_Q_a_v.savefig(f"{plot_path}/Q_a_v.png", bbox_inches="tight")
+# ax_v.set_xlabel("Time")
+# ax_v.set_ylabel("Phase-averaged velocity")
+# ax_v.legend()
+fig_Q_a.savefig(f"{plot_path}/Q_a.png", bbox_inches="tight")
 # fig_v_a.savefig(f"{plot_path}/Q_f_and_a_constant_flux.png", bbox_inches="tight")

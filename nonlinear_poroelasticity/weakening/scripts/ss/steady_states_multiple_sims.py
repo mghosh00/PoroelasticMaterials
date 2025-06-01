@@ -7,6 +7,7 @@ change the value of the fixed imposed fluid flux, Q_f.
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import pandas as pd
 import json
 
 from long_steady_state_analysis import get_phi_l, solve_analytic
@@ -14,6 +15,10 @@ from long_steady_state_analysis import get_phi_l, solve_analytic
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
+
+
+# Whether we use pre-simulated data or want to generate new data
+use_data = False
 
 """
 Reading in our parameters and defining our paths
@@ -71,14 +76,14 @@ def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: flo
 
 
 # Varying the fluid flux, Q_f
-Q_f_arr = np.linspace(0, 8, 101)
+Q_f_arr = np.linspace(1, 2, 101)
 # Q_f = 1
 
 # Varying the Poisson's ratio, nu
 # nu_arr = np.linspace(-0.95, 0.45, 50)
 
 # Varying the initial porosity, phi_f0
-phi_f0_arr = np.linspace(0.05, 0.95, 91)
+phi_f0_arr = np.linspace(0.5, 0.5, 1)
 
 xi = np.linspace(0, 1, N_x + 1)
 
@@ -110,40 +115,49 @@ def steady_state_one_sim(_xi: np.array, _phi_f0: float, _nu: float,
 # Setting up dict for later (each item will be a list of lists representing
 # Q_f and phi_f0 values)
 ss_outputs_dict = {"phi_r": [], "Delta P": [], "dpf_dx": [], "a": []}
+subscripts = ["phi_r", "DeltaP", "dpf_dx", "a"]
 N_Q_f, N_phi_f0 = len(Q_f_arr), len(phi_f0_arr)
-for i in range(N_Q_f):
-    Q_f = float(Q_f_arr[i])
-    # This inner dict represents sims for all phi_f0 values but a fixed value
-    # of Q_f
-    inner_dict = {"phi_r": [], "Delta P": [], "dpf_dx": [], "a": []}
-    for j in range(N_phi_f0):
-        phi_f0 = float(phi_f0_arr[j])
-        print(f"Simulation ({i}, {j}): Q_f = {round(Q_f, 3)}, phi_f0 = {round(phi_f0, 3)}")
-        # Find important steady state outputs
-        ss_outputs = steady_state_one_sim(xi, phi_f0, nu, sigma_l,
-                                          E_min, Q_f, t_phi, t_v)
-        for k, output_key in enumerate(inner_dict.keys()):
-            # Add each output to the correct category within the inner_dict
-            inner_dict[output_key].append(ss_outputs[k])
+if not use_data:
+    for i in range(N_Q_f):
+        Q_f = float(Q_f_arr[i])
+        # This inner dict represents sims for all phi_f0 values but a fixed value
+        # of Q_f
+        inner_dict = {"phi_r": [], "Delta P": [], "dpf_dx": [], "a": []}
+        for j in range(N_phi_f0):
+            phi_f0 = float(phi_f0_arr[j])
+            print(f"Simulation ({i}, {j}): Q_f = {round(Q_f, 3)}, phi_f0 = {round(phi_f0, 3)}")
+            # Find important steady state outputs
+            ss_outputs = steady_state_one_sim(xi, phi_f0, nu, sigma_l,
+                                              E_min, Q_f, t_phi, t_v)
+            for k, output_key in enumerate(inner_dict.keys()):
+                # Add each output to the correct category within the inner_dict
+                inner_dict[output_key].append(ss_outputs[k])
+        for k, output_key in enumerate(ss_outputs_dict.keys()):
+            # Add each inner list to the full dict (has length N_phi_f0)
+            ss_outputs_dict[output_key].append(inner_dict[output_key])
     for k, output_key in enumerate(ss_outputs_dict.keys()):
-        # Add each inner list to the full dict (has length N_phi_f0)
-        ss_outputs_dict[output_key].append(inner_dict[output_key])
-for k, output_key in enumerate(ss_outputs_dict.keys()):
-    # Convert each inner array into a numpy array of shape (N_Q_f x N_phi_f0)
-    ss_outputs_dict[output_key] = np.array(ss_outputs_dict[output_key])
+        # Convert each inner array into a numpy array of shape (N_Q_f x N_phi_f0)
+        ss_outputs_dict[output_key] = np.array(ss_outputs_dict[output_key])
+else:
+    for k, output_key in enumerate(ss_outputs_dict.keys()):
+        Z_df = (pd.read_csv(f"{data_path}/ss_params_{subscripts[k]}.csv", index_col=0)
+                .to_numpy().transpose())
+        ss_outputs_dict[output_key] = Z_df
 
-# fig, axs = plt.subplots(nrows=4, ncols=1, figsize=(8, 40/3), sharex=True)
-# quant_arrays = [np.array(Delta_P_list), np.array(dpf_dx_list), np.array(a_list), np.array(phi_r_list)]
-# latex_quants = ["$\\Delta P$", "$\\frac{dp_{f}}{dx}$", "$a$", "$\\phi_r$"]
-# colours = ["orange", "firebrick", "darkviolet", "dodgerblue"]
-#
-# for i in range(len(axs)):
-#     ax = axs[i]
-#     ax.plot(phi_f0_arr, quant_arrays[i], color=colours[i])
-#     ax.set_xlabel("$\\phi_{f,0}$")
-#     ax.set_ylabel(latex_quants[i])
-#
-# fig.savefig(f"{plot_path}/ss_param_plot.png", bbox_inches="tight")
+
+fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(8, 10/3), sharex=True)
+axs = [axs]
+quant_arrays = [ss_outputs_dict["Delta P"][:]]
+latex_quants = ["$\\Delta P$", "$\\frac{dp_{f}}{dx}$", "$a$", "$\\phi_r$"]
+colours = ["crimson", "firebrick", "darkviolet", "dodgerblue"]
+
+for i in range(len(axs)):
+    ax = axs[i]
+    ax.plot(Q_f_arr, quant_arrays[i], color=colours[i])
+    ax.set_xlabel("$Q_{f}$")
+    ax.set_ylabel(latex_quants[i])
+
+fig.savefig(f"{plot_path}/ss_param_plot.png", bbox_inches="tight")
 
 
 def Q_f_boundary_curve(_phi_f0: np.array, _nu: float, _E_min: float, _t_phi: float, _t_v: float):
@@ -166,7 +180,6 @@ def Q_f_boundary_curve(_phi_f0: np.array, _nu: float, _E_min: float, _t_phi: flo
 
 Q_f_mesh, phi_f0_mesh = np.meshgrid(Q_f_arr, phi_f0_arr)
 latex_quants = ["$\\phi_{r}$", "$\\Delta P$", "$-\\frac{dp_{f}}{dx}(1)$", "$a$"]
-subscripts = ["phi_r", "DeltaP", "dpf_dx", "a"]
 cmap_names = ["viridis", "viridis", "viridis", "viridis"]
 
 nfigs = 4
@@ -182,15 +195,17 @@ for k in range(nfigs):
     # Mask any unreasonable values (when phi_r <= 0)
     Z[Z_phi_r <= 1e-2] = np.ma.masked
     if output_key == "dpf_dx":
-        CS = ax.contourf(phi_f0_mesh, Q_f_mesh, Z, 100, cmap=plt.cm.get_cmap(cmap),
-                         norm=mpl.colors.LogNorm())
+        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=plt.cm.get_cmap(cmap),
+                           norm=mpl.colors.LogNorm())
     else:
-        CS = ax.contourf(phi_f0_mesh, Q_f_mesh, Z, 100, cmap=plt.cm.get_cmap(cmap))
-    ax.plot(phi_f0_arr, Q_f_boundary_curve(phi_f0_arr, nu, E_min, t_phi, t_v),
-            "--k", lw=1, label="Boundary curve")
-    ax.legend()
+        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=plt.cm.get_cmap(cmap))
+    # ax.plot(phi_f0_arr, Q_f_boundary_curve(phi_f0_arr, nu, E_min, t_phi, t_v),
+    #         "--k", lw=1, label="Boundary curve")
+    # ax.legend()
     ax.set_xlabel("$\\phi_{f,0}$")
     ax.set_ylabel("$Q_f$")
     cbar = fig.colorbar(CS)
     cbar.ax.set_ylabel(latex_quants[k])
-    fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")
+    # fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")
+    Z_df = pd.DataFrame(Z)
+    # Z_df.to_csv(f"{data_path}/ss_params_{subscripts[k]}.csv")

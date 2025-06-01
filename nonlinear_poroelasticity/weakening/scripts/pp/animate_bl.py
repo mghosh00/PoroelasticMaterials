@@ -28,7 +28,7 @@ import json
 from PIL import Image
 import time
 
-from quantity import Quantity
+from nonlinear_poroelasticity.weakening.scripts import Quantity
 
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
@@ -88,7 +88,7 @@ k_0 = params["scales"]["k"]
 # Solute concentration, Young's modulus and velocity scales
 E_star = params["scales"]["E"]
 v_star = params["scales"]["v"]
-v = params["v"]["v_final"]
+Q_f = params["v"]["v_final"]
 
 # Timescales (only parameters other than nu and phi_f0 in the equations)
 t_phi = (mu * L ** 2) / (k_0 * E_star)
@@ -130,7 +130,7 @@ Defining the two boundary layer solutions
 """
 
 
-def phi_f_bl_early(_x: np.array, _t: float, _phi_f0: float, _v: float,
+def phi_f_bl_early(_x: np.array, _t: float, _phi_f0: float, _Q_f: float,
                    _D_phi_early: float):
     """Returns the np.array solution in the early boundary layer. This is
     described at the top of the file.
@@ -138,25 +138,25 @@ def phi_f_bl_early(_x: np.array, _t: float, _phi_f0: float, _v: float,
     :param _x: The spatial coordinate array.
     :param _t: The specific timepoint.
     :param _phi_f0: The initial porosity.
-    :param _v: The nondimensional volume flux.
+    :param _Q_f: The nondimensional volume flux.
     :param _D_phi_early: The diffusion coefficient for the problem.
     :return: The porosity array at this timepoint within the early BL.
     """
     term2 = 2 * np.sqrt(_t / (np.pi * _D_phi_early)) * np.exp(- (1 - _x) ** 2 / (4 * _D_phi_early * _t))
     term3 = - (1 - _x) / _D_phi_early * (1 - ss.erf((1 - _x) / (2 * np.sqrt(_D_phi_early * _t))))
-    return _phi_f0 - _v * (1 - _phi_f0) * (term2 + term3)
+    return _phi_f0 - _Q_f * (1 - _phi_f0) * (term2 + term3)
 
 
-def phi_f_bl_late(_x: np.array, _v: float, _D_phi_late: float):
+def phi_f_bl_late(_x: np.array, _Q_f: float, _D_phi_late: float):
     """Returns the np.array solution in the late boundary layer. This is
     described at the top of the file.
 
     :param _x: The spatial coordinate array.
-    :param _v: The nondimensional volume flux.
+    :param _Q_f: The nondimensional volume flux.
     :param _D_phi_late: The diffusion coefficient for the problem.
     :return: The porosity array at this timepoint within the late BL.
     """
-    return (_v * (1 - _x) / _D_phi_late) ** (1 / 4)
+    return (_Q_f * (1 - _x) / _D_phi_late) ** (1 / 4)
 
 
 def phi_f_bl_late_longer(_x: np.array, _v: float, _D_phi_late: float,
@@ -177,6 +177,28 @@ def phi_f_bl_late_longer(_x: np.array, _v: float, _D_phi_late: float,
     return term1 + factor2 * term2
 
 
+def phi_f_lin_elastic(_x_arr: np.array, _t: float, _Q_f: float,
+                      _phi_f0: float, _D_phi: float, n_terms: int = 1000):
+    """Calculates the analytic Fourier series expression for the porosity when
+    we have zero solid stress on the RIGHT boundary. Q_f must also be constant
+    in time.
+
+    :param _x_arr: The spatial coordinate array.
+    :param _t: The current timepoint.
+    :param _Q_f: The imposed fluid flux.
+    :param _phi_f0: The initial porosity.
+    :param _D_phi: The diffusion coefficient for the porosity equation.
+    :param n_terms: The number of terms in the Fourier series expansion.
+    :return: The porosity at the current timepoint.
+    """
+    _phi_f1 = - (1 - _phi_f0) / _D_phi * _Q_f * _x_arr
+    for m in range(n_terms):
+        factor = 8 / ((2 * m + 1) * np.pi) ** 2 * (1 - _phi_f0) / _D_phi * _Q_f
+        summand = np.cos((m + 1 / 2) * np.pi * (1 - _x_arr)) * np.exp(- ((m + 1 / 2) * np.pi) ** 2 * _D_phi * _t)
+        _phi_f1 += factor * summand
+    return _phi_f0 + _phi_f1
+
+
 """
 Loop over time steps and plot each frame
 """
@@ -187,7 +209,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-period = 0.0001
+period = 0.001
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -216,10 +238,12 @@ if not gif:
     phi_f.set_ax(axs_list[0])
 
 early_label = "Early boundary layer"
+lin_label = "Linear elasticity (analytic)"
 late_label = "$\\tilde{\\Phi}_{f,0}$"
 late_extra_label = "$\\tilde{\\Phi}_{f,0} + \\tilde{\\epsilon}\\tilde{\\Phi}_{f,1}$"
-fenics_label = "FEniCS solution ($\\phi_f$)"
+fenics_label = "Nonlinear elasticity (numeric)"
 n_end = int(N_time * delta_t / period) + 1
+# n_end = 50
 
 for n in range(n_end):
     if n != n_end - 1:
@@ -236,12 +260,15 @@ for n in range(n_end):
 
     # Calculate quantities within boundary layer
     early_bl_quants = []
+    lin_quants = []
     late_bl_quants = []
     late_bl_extra_quants = []
-    phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, v, D_phi_early)
-    phi_f_late = phi_f_bl_late(coord_arr_n, v, D_phi_late)
-    phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, v, D_phi_late, phi_f0, nu)
+    phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, Q_f, D_phi_early)
+    phi_f_lin = phi_f_lin_elastic(coord_arr_n, t, Q_f, phi_f0, D_phi_early)
+    phi_f_late = phi_f_bl_late(coord_arr_n, Q_f, D_phi_late)
+    phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, Q_f, D_phi_late, phi_f0, nu)
     early_bl_quants.append(phi_f_early)
+    lin_quants.append(phi_f_lin)
     late_bl_quants.append(phi_f_late)
     late_bl_extra_quants.append(phi_f_late_extra)
 
@@ -260,13 +287,15 @@ for n in range(n_end):
         ax = axs_list[i]
         coord_arr_n = np.log(1 - coord_arr_n) if log else coord_arr_n
         early_bl_n = np.log(early_bl_quants[i]) if log else early_bl_quants[i]
-        late_bl_n = np.log(late_bl_quants[i]) if log else late_bl_quants[i]
-        late_bl_extra_n = np.log(late_bl_extra_quants[i] if log else late_bl_extra_quants[i])
+        lin_n = np.log(lin_quants[i]) if log else lin_quants[i]
+        # late_bl_n = np.log(late_bl_quants[i]) if log else late_bl_quants[i]
+        # late_bl_extra_n = np.log(late_bl_extra_quants[i] if log else late_bl_extra_quants[i])
         fenics_arr_n = np.log(data_dict[name][:, m]) if log else data_dict[name][:, m]
         if gif:
-            line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--g", label=early_label)
-            line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r", label=late_label)
+            # line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--g", label=early_label)
+            # line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r", label=late_label)
             line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color=colours[i], label=fenics_label)
+            line_lin = ax.plot(coord_arr_n, lin_n, color="darkgoldenrod", linestyle='--', label=lin_label)
             ax.set_xlabel(plot_coord_tex)
             ax.set_ylabel(latex_quants[i])
             ax.set_xlim(xmin, xmax)
@@ -276,10 +305,12 @@ for n in range(n_end):
             phi_f.f_fixed = fenics_arr_n
             line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--r",
                                     label=early_label if n == 0 else None)
-            line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r",
-                                   label=late_label if n == 0 else None)
-            line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, linestyle='--',
-                                         color='goldenrod', label=late_extra_label if n == 0 else None)
+            line_lin = ax.plot(coord_arr_n, lin_n, color="darkviolet",
+                               label=lin_label if n == 0 else None)
+            # line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r",
+            #                        label=late_label if n == 0 else None)
+            # line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, linestyle='--',
+            #                              color='goldenrod', label=late_extra_label if n == 0 else None)
             line_fenics = phi_f.plot(norm, t, fixed_domain=True,
                                      label=fenics_label if n == 0 else None)
         ax.legend()
