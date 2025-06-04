@@ -8,6 +8,8 @@ import json
 from PIL import Image
 import time
 
+from fenics import Expression
+
 from nonlinear_poroelasticity.weakening.scripts import Quantity, calculate_c, get_phi_l, solve_analytic
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
@@ -35,7 +37,7 @@ Computational parameters
 """
 
 # Size of time step
-delta_t = params["comp"]["delta_t"]
+delta_tau = params["comp"]["delta_tau"]
 
 # Number of time steps
 N_time = params["comp"]["N_time"]
@@ -104,7 +106,13 @@ v_s = Quantity("$v_{s}$", "YlOrBr", 5)
 
 
 quantities = {"phi": phi_f, "E": E, "c": c, "sigma": sigma, "u_s": u_s, "v_s": v_s}
-times = np.linspace(0, N_time * delta_t, N_time + 1)
+t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
+t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
+times = [float(t_expr(0.0))]
+for n in range(N_time):
+    t_expr.tau += delta_tau
+    times.append(float(t_expr(0.0)))
+times = np.array(times)
 
 # Setting up the mesh
 for quantity in quantities.values():
@@ -124,7 +132,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 images = []
 # The time step between each frame
-period = 0.001
+tau_period = 0.001
 
 # Set up the colorbars and label the plots
 quant_names = ["phi", "E", "c"]
@@ -136,8 +144,8 @@ maxes += 0.1 * ranges
 nrows, ncols = 3, 1
 quantities = [quantities[name] for name in quant_names]
 
-for n in range(int(N_time * delta_t / period)):
-    m = n * int(period / delta_t)
+for n in range(int(N_time * delta_tau / tau_period)):
+    m = n * int(tau_period / delta_tau)
     """
     Set up figure for the overall plot
     """
@@ -148,8 +156,8 @@ for n in range(int(N_time * delta_t / period)):
     # axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
     axs_list = axs
     Quantity.set_axs(quantities, axs_list)
-    norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
-    t = np.round(n * period, 3)
+    norm = mpl.colors.Normalize(vmin=0.0, vmax=float(times[-1]))
+    t = np.round(float(times[m]))
     print("Time:", t)
 
     # Set up the correct arrays for the timepoint
@@ -161,7 +169,7 @@ for n in range(int(N_time * delta_t / period)):
         axs_list[i].legend()
 
     # plot at the current timepoint
-    lines = Quantity.plot_quantities(quantities, norm, m * delta_t, fixed_domain=fixed_domain)
+    lines = Quantity.plot_quantities(quantities, norm, t, fixed_domain=fixed_domain)
 
     Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex,
                             mins=mins, maxes=maxes,
@@ -205,10 +213,10 @@ Set up figure for the overall plot
 def update(frame_no: int):
     # fig.clf()
     for i, name in enumerate(quant_names):
-        quantity_arr_n = data_dict[name][:, int(frame_no * period / delta_t)]
+        quantity_arr_n = data_dict[name][:, int(frame_no * tau_period / delta_tau)]
         quantity.f = quantity_arr_n
     lines = Quantity.plot_quantities(quantities, norm,
-                                     frame_no * delta_t, fixed_domain=fixed_domain)
+                                     times[frame_no], fixed_domain=fixed_domain)
     return tuple(lines)
 
 

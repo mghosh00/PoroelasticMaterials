@@ -34,7 +34,13 @@ t_{\\phi} = \\frac{\\mu L^{2}}{k_{0}E^{*}},
 t_{v_{i}} = \\frac{L}{v_{i}^{*}}, (v_{i} = v, v_{f} or v_{s}),
 t_{E} = \\frac{1}{\\beta_{E}c^{*}},
 t_{c} = \\frac{L^{2}}{\\mathcal{D}_{m}}.
+
+If we wish to have a nonlinear timestep, we will set our real time t = t(\\tau), where
+the function t(\\tau) depends on some parameter \\tau and is defined within the .json
+parameter files. The array of \\tau values will be defined on an array of length
+N_time with constant spacing delta_tau.
 """
+
 import os
 from fenics import *
 import numpy as np
@@ -56,7 +62,7 @@ param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
 # Whether we'll plot on a fixed domain or not
-fixed_domain = True
+fixed_domain = False
 plot_coord = "x" if fixed_domain else "xi"
 plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
 num_quants = 8
@@ -68,8 +74,8 @@ saving = [True] * num_quants
 Computational parameters
 """
 
-# Size of time step
-delta_t = params["comp"]["delta_t"]
+# Size of time step (if the time array has a linear spacing)
+delta_tau = params["comp"]["delta_tau"]
 
 # Number of time steps
 N_time = params["comp"]["N_time"]
@@ -161,12 +167,17 @@ P0 = FiniteElement("R", mesh.ufl_cell(), 0)
 element = MixedElement([P1, P1, P1, P1, P1, P1, P1, P0])
 V = FunctionSpace(mesh, element)
 
-# Imposed phase-averaged velocity
-# vt = Expression(params["v"]["expr"],
-#                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time)
+# Time expression and time array for a simulation with changing timestep
+t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
+t = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time, domain=mesh)
+t_next = Expression(t_tau, degree=1, tau=delta_tau, delta_tau=delta_tau, N_time=N_time, domain=mesh)
+delta_t = t_next - t
+t_final = float(Expression(t_tau, degree=1, tau=N_time * delta_tau,
+                           delta_tau=delta_tau, N_time=N_time, domain=mesh)(0.0))
+
 # Imposed fluid flux
 Q_f = Expression(params["v"]["expr"],
-                 degree=1, t=0.0, delta_t=delta_t, N_time=N_time, domain=mesh)
+                 degree=1, t=t, delta_tau=delta_tau, N_time=N_time, domain=mesh)
 """
 Function to change spatial coordinates and get to the correct mesh.
 """
@@ -451,7 +462,7 @@ def get_vs_from_E_phi(_mesh, _phi_f, _E, _a_list, _phi_f0, _nu,
     k_e_arr = compute_k_e(phi_f_arr, _phi_f0)
     g_arr = compute_g(phi_f_arr, _phi_f0, _nu)
     dg_dphi_arr = compute_dg_dphi(phi_f_arr, _phi_f0, _nu)
-    da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_t
+    da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_tau
     print(da_dt_val)
     _a = _a_list[-1]
     prod = E_arr * dg_dphi_arr * np.gradient(phi_f_arr, xi_arr) + g_arr * np.gradient(E_arr, xi_arr)
@@ -468,8 +479,8 @@ def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _a_list,
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, u_s_new_arr = fenics_to_numpy(_mesh, _u_s_new)
     _, u_s_old_arr = fenics_to_numpy(_mesh, _u_s_old)
-    dus_dt_arr = (u_s_new_arr - u_s_old_arr) / delta_t
-    da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_t
+    dus_dt_arr = (u_s_new_arr - u_s_old_arr) / delta_tau
+    da_dt_val = (_a_list[-1] - _a_list[-2]) / delta_tau
     print(da_dt_val)
     return (1 / (1 - phi_f_arr) *
             ((1 - _phi_f0) * dus_dt_arr - (1 - xi_arr) * da_dt_val * (phi_f_arr - _phi_f0))
@@ -514,9 +525,7 @@ plt.subplots_adjust(wspace=1.0 * (ncols - 1))
 axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
 # axs_list = [axs[i] for i in range(nrows)]
 Quantity.set_axs(quantities, axs_list)
-norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
-
-times = np.linspace(0, N_time * delta_t, N_time + 1)
+norm = mpl.colors.Normalize(vmin=0.0, vmax=t_final)
 
 """
 Plot the initial curves and save all our data
@@ -621,13 +630,14 @@ jacobian = derivative(Fun, w)
 """
 Loop over time steps and solve
 """
+t_list = [float(t(0.0))]
 Q_f_list = [float(Q_f(0.0))]
-t = 0.0
+t_fl = t_list[0]
 for n in range(N_time):
-    t += delta_t
+    t_fl = float(t_next(0.0))
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
-    print("Time:", np.round(t, 3))
+    print("Time:", np.round(t_fl, 3))
 
     # Solve
     solver.solve()
@@ -651,12 +661,14 @@ for n in range(N_time):
         phi_f.f_fixed[-1] = 0.0
     phi_r = phi_f.f_fixed[-1]
     if (n + 1) % plotting_freq == 0:
-        Quantity.plot_quantities(quantities, norm, t, saving,
+        Quantity.plot_quantities(quantities, norm, t_fl, saving,
                                  fixed_domain=fixed_domain)
     u_s.f = u_s_new
 
     # Update some variables
-    Q_f.t = t
+    t.tau += delta_tau
+    t_next.tau += delta_tau
+    t_list.append(float(t(0.0)))
     Q_f_list.append(float(Q_f(0.0)))
 
     phi_l = fenics_to_numpy(mesh, phi_f.f)[1][0]
@@ -690,9 +702,9 @@ fig.savefig(f"{plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
 # fig.savefig(f"{plot_path}/time_traces_constant_flux.png", bbox_inches="tight")
 
 # Create figure for the imposed velocity and left boundary over time
-fig_Q_a, axs_Q_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20/3), sharex=True)
-ax_Q, ax_a = axs_Q_a
-times = np.linspace(0, len(a_list) * delta_t, len(a_list))
+fig_Q_a_tau, axs_Q_a_tau = plt.subplots(nrows=3, ncols=1, figsize=(8, 30 / 3), sharex=True)
+ax_Q, ax_a, ax_tau = axs_Q_a_tau
+times = np.array(t_list)
 ax_Q.plot(times, np.array(Q_f_list), lw=2,
           color='forestgreen')
 # ax_a.plot(np.array(v_s_0_list), times,
@@ -705,13 +717,9 @@ ax_a.plot(times, np.array(a_list), lw=2,
 #           color='darkviolet', label='$v_s(0)$')
 ax_a.set_ylabel("$a(t)$")
 ax_a.set_xlabel("$t$")
-# ax_a.set_xlim(min(a_list), max(a_list))
-# ax_v.plot(times, np.array(Q_f_list) + t_v_num / t_sc_num * np.gradient(np.array(a_list), times),
-#           color='darkgoldenrod', label='$v(t)$')
-# ax_a.plot(np.array(v_s_0_list), times,
-#           color='darkviolet', label='$v_s(0)$')
-# ax_v.set_xlabel("Time")
-# ax_v.set_ylabel("Phase-averaged velocity")
-# ax_v.legend()
-fig_Q_a.savefig(f"{plot_path}/Q_a.png", bbox_inches="tight")
+ax_tau.plot(times, np.linspace(0, N_time * delta_tau, N_time + 1), lw=2,
+            color='darkviolet')
+ax_tau.set_ylabel("$\\tau$")
+ax_tau.set_xlabel("$t$")
+fig_Q_a_tau.savefig(f"{plot_path}/Q_a_tau.png", bbox_inches="tight")
 # fig_v_a.savefig(f"{plot_path}/Q_f_and_a_constant_flux.png", bbox_inches="tight")

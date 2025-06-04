@@ -10,6 +10,8 @@ import matplotlib as mpl
 import pandas as pd
 import json
 
+from fenics import Expression
+
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
@@ -97,8 +99,14 @@ rmse_array = rmse(data_dict_1["phi"], data_dict_2["phi"], conversion_formula)
 print(rmse_array)
 
 fig, ax = plt.subplots(1, 1, figsize=(8, 10/3))
-delta_t = max(params_1["comp"]["delta_t"], params_2["comp"]["delta_t"])
-times = np.linspace(0, (len(rmse_array) - 1) * delta_t, len(rmse_array))
+delta_tau = max(params_1["comp"]["delta_tau"], params_2["comp"]["delta_tau"])
+t_tau = params_1["comp"]["t(tau)"] if "t(tau)" in params_1["comp"] else "tau"
+t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau)
+times = [float(t_expr(0.0))]
+for n in range(params_1["comp"]["N_time"]):
+    t_expr.tau += delta_tau
+    times.append(float(t_expr(0.0)))
+times = np.array(times)
 ax.plot(times, rmse_array, color="black", lw=2.5)
 ax.set_xlabel("Time")
 ax.set_ylabel("Root mean squared error")

@@ -28,6 +28,8 @@ import json
 from PIL import Image
 import time
 
+from fenics import Expression
+
 from nonlinear_poroelasticity.weakening.scripts import Quantity
 
 mpl.rcParams.update(mpl.rcParamsDefault)
@@ -60,7 +62,7 @@ Computational parameters
 """
 
 # Size of time step
-delta_t = params["comp"]["delta_t"]
+delta_tau = params["comp"]["delta_tau"]
 
 # Number of time steps
 N_time = params["comp"]["N_time"]
@@ -117,7 +119,13 @@ for i, name in enumerate(short_quants):
     quant_arr_nan = data_arr[:, 2:]
     data_dict[name] = quant_arr_nan
 
-times = np.linspace(0, N_time * delta_t, N_time + 1)
+t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
+t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
+times = [float(t_expr(0.0))]
+for n in range(N_time):
+    t_expr.tau += delta_tau
+    times.append(float(t_expr(0.0)))
+times = np.array(times)
 coord_arr[0] = 0
 coord_arr[-1] = 1
 
@@ -209,7 +217,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-period = 0.001
+tau_period = 0.01
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -242,16 +250,12 @@ lin_label = "Linear elasticity (analytic)"
 late_label = "$\\tilde{\\Phi}_{f,0}$"
 late_extra_label = "$\\tilde{\\Phi}_{f,0} + \\tilde{\\epsilon}\\tilde{\\Phi}_{f,1}$"
 fenics_label = "Nonlinear elasticity (numeric)"
-n_end = int(N_time * delta_t / period) + 1
+n_end = int(N_time * delta_tau / tau_period) + 1
 # n_end = 50
 
 for n in range(n_end):
-    if n != n_end - 1:
-        m = n * int(period / delta_t)
-        t = m * delta_t
-    else:
-        m = -1
-        t = N_time * delta_t
+    m = n * int(tau_period / delta_tau) if n != n_end - 1 else -1
+    t = float(times[m])
     N_x_current = np.count_nonzero(~np.isnan(data_dict["phi"][:, m]))
     # print(N_x_current)
     i_min, i_max = (N_x + 1 - N_x_current, N_x + 1)

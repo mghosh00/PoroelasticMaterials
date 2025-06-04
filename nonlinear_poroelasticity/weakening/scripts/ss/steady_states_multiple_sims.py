@@ -76,7 +76,7 @@ def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: flo
 
 
 # Varying the fluid flux, Q_f
-Q_f_arr = np.linspace(1, 2, 101)
+Q_f_arr = np.linspace(1, 2, 1001)
 # Q_f = 1
 
 # Varying the Poisson's ratio, nu
@@ -151,11 +151,15 @@ quant_arrays = [ss_outputs_dict["Delta P"][:]]
 latex_quants = ["$\\Delta P$", "$\\frac{dp_{f}}{dx}$", "$a$", "$\\phi_r$"]
 colours = ["crimson", "firebrick", "darkviolet", "dodgerblue"]
 
+Z_phi_r = ss_outputs_dict["phi_r"].transpose()
 for i in range(len(axs)):
     ax = axs[i]
-    ax.plot(Q_f_arr, quant_arrays[i], color=colours[i])
+    arr = quant_arrays[i]
+    arr[Z_phi_r.transpose() <= 1e-2] = np.nan
+    ax.plot(Q_f_arr, arr, color=colours[i])
     ax.set_xlabel("$Q_{f}$")
     ax.set_ylabel(latex_quants[i])
+    ax.set_xlim(1.0, 2.0)
 
 fig.savefig(f"{plot_path}/ss_param_plot.png", bbox_inches="tight")
 
@@ -185,20 +189,21 @@ cmap_names = ["viridis", "viridis", "viridis", "viridis"]
 nfigs = 4
 # We will use the phi_r array to test the validity of the steady state.
 # If phi_r <= 0, then the steady state does not exist
-Z_phi_r = ss_outputs_dict["phi_r"].transpose()
 for k in range(nfigs):
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
-    cmap = cmap_names[k]
+    cmap_name = cmap_names[k]
     output_key = list(ss_outputs_dict.keys())[k]
     # Z is an array of shape (N_Q_f, N_phi_f0)
     Z = ss_outputs_dict[output_key].transpose()
     # Mask any unreasonable values (when phi_r <= 0)
-    Z[Z_phi_r <= 1e-2] = np.ma.masked
+    Z[Z_phi_r <= 1e-2] = np.nan
+    cmap = plt.cm.get_cmap(cmap_name).copy()
+    cmap.set_bad(color="grey")
     if output_key == "dpf_dx":
-        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=plt.cm.get_cmap(cmap),
+        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=cmap,
                            norm=mpl.colors.LogNorm())
     else:
-        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=plt.cm.get_cmap(cmap))
+        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=cmap)
     # ax.plot(phi_f0_arr, Q_f_boundary_curve(phi_f0_arr, nu, E_min, t_phi, t_v),
     #         "--k", lw=1, label="Boundary curve")
     # ax.legend()
