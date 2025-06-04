@@ -35,27 +35,8 @@ params = json.load(param_file)
 N_x = params["comp"]["N_x"]
 
 phi_f0 = params["ics"]["phi_f"]
-#
-# L = params["phys"]["L"]
-# nu = params["phys"]["nu"]
-# mu = params["phys"]["mu"]
-# E_min = params["phys"]["E_min"]
-# D_m = params["phys"]["D_m"]
-#
-# k_0 = params["scales"]["k"]
-# E_star = params["scales"]["E"]
-# v_star = params["scales"]["v"]
-#
-# v_final = params["v"]["v_final"]
-#
-# c_left = params["bcs"]["c_left"]
-# sigma_l = params["bcs"]["sigma_left"]
 
 param_file.close()
-
-# t_phi = (mu * L ** 2) / (k_0 * E_star)
-# t_v = L / v_star
-# t_c = L ** 2 / D_m
 
 
 def final_array(path: str):

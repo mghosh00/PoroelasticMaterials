@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import json
 
-from long_steady_state_analysis import get_phi_l, solve_analytic
+from steady_state import SteadyState
 
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
@@ -37,25 +37,7 @@ N_x = params["comp"]["N_x"]
 
 phi_f0 = params["ics"]["phi_f"]
 
-L = params["phys"]["L"]
-nu = params["phys"]["nu"]
-mu = params["phys"]["mu"]
-E_min = params["phys"]["E_min"]
-D_m = params["phys"]["D_m"]
-
-k_0 = params["scales"]["k"]
-E_star = params["scales"]["E"]
-v_star = params["scales"]["v"]
-
-c_left = params["bcs"]["c_left"]
-sigma_l = params["bcs"]["sigma_left"]
-
 param_file.close()
-
-# Timescales
-t_phi = (mu * L ** 2) / (k_0 * E_star)
-t_v = L / v_star
-t_c = L ** 2 / D_m
 
 
 def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: float):
@@ -76,38 +58,27 @@ def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: flo
 
 
 # Varying the fluid flux, Q_f
-Q_f_arr = np.linspace(1, 2, 1001)
+Q_f_arr = np.linspace(0, 8, 101)
 # Q_f = 1
 
 # Varying the Poisson's ratio, nu
 # nu_arr = np.linspace(-0.95, 0.45, 50)
 
 # Varying the initial porosity, phi_f0
-phi_f0_arr = np.linspace(0.5, 0.5, 1)
+phi_f0_arr = np.linspace(0.05, 0.95, 91)
 
 xi = np.linspace(0, 1, N_x + 1)
 
 
-def steady_state_one_sim(_xi: np.array, _phi_f0: float, _nu: float,
-                         _sigma_l: float, _E_min: float, _Q_f: float,
-                         _t_phi: float, _t_v: float):
+def steady_state_one_sim(_steady_state: SteadyState):
     """Finds properties of the steady state for a particular simulation.
 
-    :param _xi: The spatial coordinate array.
-    :param _phi_f0: The initial porosity.
-    :param _nu: The Poisson's ratio.
-    :param _sigma_l: The left value of the stress.
-    :param _E_min: The minimum Young's modulus.
-    :param _Q_f: The fluid flux.
-    :param _t_phi: The porosity timescale.
-    :param _t_v: The advective timescale.
     :return: Properties of the steady state in a tuple.
     """
-    phi_l = get_phi_l(_sigma_l, _E_min, _phi_f0, _nu)
-    factor = (_t_phi * _Q_f * _phi_f0 ** 3) / (_t_v * _E_min * (1 - _phi_f0))
-    phi_f_ss, a_ss, B_ss = solve_analytic(_xi, phi_l, _phi_f0, _nu, factor)
-    sigma_xx_ss = calculate_sigma_xx(phi_f_ss, _phi_f0, _nu, _E_min)
-    dsigma_xx_ss_dx = np.gradient(sigma_xx_ss, _xi)
+    phi_f_ss, a_ss, B_ss = _steady_state.solve_analytic()
+    sigma_xx_ss = calculate_sigma_xx(phi_f_ss, _steady_state.phi_f0,
+                                     _steady_state.nu, _steady_state.E_min)
+    dsigma_xx_ss_dx = np.gradient(sigma_xx_ss, _steady_state.xi)
     # phi_f at x = 1, Delta P, -dpf_dx at x = 1 and a
     return phi_f_ss[-1], -sigma_xx_ss[-1], -dsigma_xx_ss_dx[-1], a_ss
 
@@ -127,8 +98,10 @@ if not use_data:
             phi_f0 = float(phi_f0_arr[j])
             print(f"Simulation ({i}, {j}): Q_f = {round(Q_f, 3)}, phi_f0 = {round(phi_f0, 3)}")
             # Find important steady state outputs
-            ss_outputs = steady_state_one_sim(xi, phi_f0, nu, sigma_l,
-                                              E_min, Q_f, t_phi, t_v)
+            params["ics"]["phi_f"] = phi_f0
+            params["v"]["v_final"] = Q_f
+            steady_state = SteadyState(params, xi)
+            ss_outputs = steady_state_one_sim(steady_state)
             for k, output_key in enumerate(inner_dict.keys()):
                 # Add each output to the correct category within the inner_dict
                 inner_dict[output_key].append(ss_outputs[k])
@@ -204,13 +177,10 @@ for k in range(nfigs):
                            norm=mpl.colors.LogNorm())
     else:
         CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=cmap)
-    # ax.plot(phi_f0_arr, Q_f_boundary_curve(phi_f0_arr, nu, E_min, t_phi, t_v),
-    #         "--k", lw=1, label="Boundary curve")
-    # ax.legend()
     ax.set_xlabel("$\\phi_{f,0}$")
     ax.set_ylabel("$Q_f$")
     cbar = fig.colorbar(CS)
     cbar.ax.set_ylabel(latex_quants[k])
-    # fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")
+    fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")
     Z_df = pd.DataFrame(Z)
     # Z_df.to_csv(f"{data_path}/ss_params_{subscripts[k]}.csv")
