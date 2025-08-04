@@ -133,6 +133,14 @@ class Quantity:
                    else f.compute_vertex_values(_mesh))
         return mesh_array, f_array
 
+    def get_average(self):
+        """Calculates the average value of the quantity across the domain.
+
+        :return: The float average value.
+        """
+        _, q_array = self.fenics_to_numpy(self._mesh, self.f)
+        return np.mean(q_array)
+
     def plot(self, norm: mpl.colors.Normalize, time: float,
              save_data: bool = False, fixed_domain: bool = False,
              label: str = None):

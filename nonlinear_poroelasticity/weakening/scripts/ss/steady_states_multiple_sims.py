@@ -58,8 +58,11 @@ def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: flo
 
 
 # Varying the fluid flux, Q_f
-Q_f_arr = np.linspace(0, 8, 101)
+# Q_f_arr = np.linspace(0, 8, 101)
 # Q_f = 1
+
+# Varying the minimal Young's modulus, E_min
+E_min_arr = np.linspace(0.05, 1.0, 96)
 
 # Varying the Poisson's ratio, nu
 # nu_arr = np.linspace(-0.95, 0.45, 50)
@@ -84,22 +87,22 @@ def steady_state_one_sim(_steady_state: SteadyState):
 
 
 # Setting up dict for later (each item will be a list of lists representing
-# Q_f and phi_f0 values)
+# E_min and phi_f0 values)
 ss_outputs_dict = {"phi_r": [], "Delta P": [], "dpf_dx": [], "a": []}
 subscripts = ["phi_r", "DeltaP", "dpf_dx", "a"]
-N_Q_f, N_phi_f0 = len(Q_f_arr), len(phi_f0_arr)
+N_E_min, N_phi_f0 = len(E_min_arr), len(phi_f0_arr)
 if not use_data:
-    for i in range(N_Q_f):
-        Q_f = float(Q_f_arr[i])
+    for i in range(N_E_min):
+        E_min = float(E_min_arr[i])
         # This inner dict represents sims for all phi_f0 values but a fixed value
-        # of Q_f
+        # of E_min
         inner_dict = {"phi_r": [], "Delta P": [], "dpf_dx": [], "a": []}
         for j in range(N_phi_f0):
             phi_f0 = float(phi_f0_arr[j])
-            print(f"Simulation ({i}, {j}): Q_f = {round(Q_f, 3)}, phi_f0 = {round(phi_f0, 3)}")
+            print(f"Simulation ({i}, {j}): E_min = {round(E_min, 3)}, phi_f0 = {round(phi_f0, 3)}")
             # Find important steady state outputs
             params["ics"]["phi_f"] = phi_f0
-            params["v"]["v_final"] = Q_f
+            params["phys"]["E_min"] = E_min
             steady_state = SteadyState(params, xi)
             ss_outputs = steady_state_one_sim(steady_state)
             for k, output_key in enumerate(inner_dict.keys()):
@@ -109,7 +112,7 @@ if not use_data:
             # Add each inner list to the full dict (has length N_phi_f0)
             ss_outputs_dict[output_key].append(inner_dict[output_key])
     for k, output_key in enumerate(ss_outputs_dict.keys()):
-        # Convert each inner array into a numpy array of shape (N_Q_f x N_phi_f0)
+        # Convert each inner array into a numpy array of shape (N_E_min x N_phi_f0)
         ss_outputs_dict[output_key] = np.array(ss_outputs_dict[output_key])
 else:
     for k, output_key in enumerate(ss_outputs_dict.keys()):
@@ -129,10 +132,10 @@ for i in range(len(axs)):
     ax = axs[i]
     arr = quant_arrays[i]
     arr[Z_phi_r.transpose() <= 1e-2] = np.nan
-    ax.plot(Q_f_arr, arr, color=colours[i])
-    ax.set_xlabel("$Q_{f}$")
+    ax.plot(E_min_arr, arr, color=colours[i])
+    ax.set_xlabel("$E_{\\mathrm{min}}$")
     ax.set_ylabel(latex_quants[i])
-    ax.set_xlim(1.0, 2.0)
+    ax.set_xlim(0.0, 1.0)
 
 fig.savefig(f"{plot_path}/ss_param_plot.png", bbox_inches="tight")
 
@@ -155,7 +158,7 @@ def Q_f_boundary_curve(_phi_f0: np.array, _nu: float, _E_min: float, _t_phi: flo
     return multiplier * (term1 + term2 + term3)
 
 
-Q_f_mesh, phi_f0_mesh = np.meshgrid(Q_f_arr, phi_f0_arr)
+E_min_mesh, phi_f0_mesh = np.meshgrid(E_min_arr, phi_f0_arr)
 latex_quants = ["$\\phi_{r}$", "$\\Delta P$", "$-\\frac{dp_{f}}{dx}(1)$", "$a$"]
 cmap_names = ["viridis", "viridis", "viridis", "viridis"]
 
@@ -173,12 +176,12 @@ for k in range(nfigs):
     cmap = plt.cm.get_cmap(cmap_name).copy()
     cmap.set_bad(color="grey")
     if output_key == "dpf_dx":
-        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=cmap,
+        CS = ax.pcolormesh(phi_f0_mesh, E_min_mesh, Z, cmap=cmap,
                            norm=mpl.colors.LogNorm())
     else:
-        CS = ax.pcolormesh(phi_f0_mesh, Q_f_mesh, Z, cmap=cmap)
+        CS = ax.pcolormesh(phi_f0_mesh, E_min_mesh, Z, cmap=cmap)
     ax.set_xlabel("$\\phi_{f,0}$")
-    ax.set_ylabel("$Q_f$")
+    ax.set_ylabel("$E_{\\mathrm{min}}$")
     cbar = fig.colorbar(CS)
     cbar.ax.set_ylabel(latex_quants[k])
     fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")

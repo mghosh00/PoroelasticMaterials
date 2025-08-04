@@ -10,7 +10,7 @@ import time
 
 from fenics import Expression
 
-from nonlinear_poroelasticity.weakening.scripts import Quantity, calculate_c, get_phi_l, solve_analytic
+from nonlinear_poroelasticity.weakening.scripts import Quantity, SteadyState
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
@@ -60,7 +60,7 @@ k_0 = params["scales"]["k"]
 E_star = params["scales"]["E"]
 v_star = params["scales"]["v"]
 
-Q_f_final = params["v"]["v_final"]
+Q_f_final = params["Q_f"]["Q_f_final"]
 
 c_left = params["bcs"]["c_left"]
 sigma_l = params["bcs"]["sigma_left"]
@@ -86,11 +86,10 @@ for i, name in enumerate(short_quants):
     data_dict[name] = quant_arr_nan
 
 # Find the analytical steady state for the porosity, Young's modulus and solute concentration
-phi_l = get_phi_l(sigma_l, E_min, phi_f0, nu)
-factor = (t_phi * Q_f_final * phi_f0 ** 3) / (t_v * E_min * (1 - phi_f0))
-phi_f_ss, a_ss, B_ss = solve_analytic(coord_arr, phi_l, phi_f0, nu, factor)
+steady_state_phi = SteadyState(params, coord_arr)
+phi_f_ss, a_ss, B_ss = steady_state_phi.solve_analytic()
 E_ss = np.array([E_min] * (N_x + 1))
-c_ss = calculate_c(phi_f_ss, a_ss, coord_arr, t_c, t_v, Q_f_final, c_left)
+c_ss = np.array([c_left] * (N_x + 1))
 ss_arrs = [phi_f_ss, E_ss, c_ss]
 
 """
@@ -113,6 +112,7 @@ for n in range(N_time):
     t_expr.tau += delta_tau
     times.append(float(t_expr(0.0)))
 times = np.array(times)
+print(times)
 
 # Setting up the mesh
 for quantity in quantities.values():
@@ -132,7 +132,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 images = []
 # The time step between each frame
-tau_period = 0.001
+tau_period = 0.002
 
 # Set up the colorbars and label the plots
 quant_names = ["phi", "E", "c"]
@@ -157,7 +157,7 @@ for n in range(int(N_time * delta_tau / tau_period)):
     axs_list = axs
     Quantity.set_axs(quantities, axs_list)
     norm = mpl.colors.Normalize(vmin=0.0, vmax=float(times[-1]))
-    t = np.round(float(times[m]))
+    t = np.round(float(times[m]), 3)
     print("Time:", t)
 
     # Set up the correct arrays for the timepoint
@@ -225,8 +225,8 @@ def update(frame_no: int):
 #                               frames=int(N_time * delta_t / period), interval=5)
 
 # Make the .gif and delete the frames directory
-images[0].save(f"{plot_path}/{quant_names[0]}_animated.gif", save_all=True,
-               append_images=images[1:], duration=80, loop=0)
+images[0].save(f"{plot_path}/all_animated.gif", save_all=True,
+               append_images=images[1:], duration=120, loop=0)
 os.rmdir(f"{plot_path}/frames")
 
 # ani.save(filename=f"{plot_path}/phi_f_animated.gif", writer="pillow")

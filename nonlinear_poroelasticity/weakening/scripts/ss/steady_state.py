@@ -35,7 +35,7 @@ class SteadyState:
         self.E_star = params["scales"]["E"]
         self.v_star = params["scales"]["v"]
 
-        self.Q_f = params["v"]["v_final"]
+        self.Q_f = params["Q_f"]["Q_f_final"]
 
         self.c_left = params["bcs"]["c_left"]
         self.sigma_l = params["bcs"]["sigma_left"]

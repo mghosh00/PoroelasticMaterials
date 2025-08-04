@@ -30,7 +30,7 @@ import time
 
 from fenics import Expression
 
-from nonlinear_poroelasticity.weakening.scripts import Quantity
+from nonlinear_poroelasticity.weakening.scripts import Quantity, SteadyState
 
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
@@ -39,8 +39,8 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "long_steady_state"
-sub_trial = "v_0_1"
+trial = "nondim_realistic_params"
+sub_trial = "below_gamma_crit"
 param_file = open(f"resources/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -80,21 +80,25 @@ L = params["phys"]["L"]
 # Initial porosity, \\phi_{f,0}
 phi_f0 = params["ics"]["phi_f"]
 
-# Poisson ratio and viscosity
+# Poisson ratio, viscosity and weakening
 nu = params["phys"]["nu"]
 mu = params["phys"]["mu"]
+beta_E = params["phys"]["beta_E"]
+E_min = params["phys"]["E_min"]
 
 # Permeability scale
 k_0 = params["scales"]["k"]
 
 # Solute concentration, Young's modulus and velocity scales
+c_star = params["scales"]["c"]
 E_star = params["scales"]["E"]
 v_star = params["scales"]["v"]
-Q_f = params["v"]["v_final"]
+Q_f = params["Q_f"]["Q_f_final"]
 
 # Timescales (only parameters other than nu and phi_f0 in the equations)
 t_phi = (mu * L ** 2) / (k_0 * E_star)
 t_v = L / v_star
+t_E = 1 / (beta_E * c_star)
 
 # The collective "diffusion coefficient" for the early equation
 D_phi_early = (1 * (1 - nu) * t_v) / (t_phi * (1 + nu) * (1 - 2 * nu))
@@ -134,7 +138,7 @@ coord_arr[-1] = 1
 
 
 """
-Defining the two boundary layer solutions
+Defining the various analytic solutions to parts of the problem
 """
 
 
@@ -207,6 +211,33 @@ def phi_f_lin_elastic(_x_arr: np.array, _t: float, _Q_f: float,
     return _phi_f0 + _phi_f1
 
 
+def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
+                            _E_min: float, _params: dict):
+    """Calculates the quasi-steady expression for phi_f for the case in which the
+    weakening timescale is much longer than the other timescales, and we are in this
+    regime. Provided c has converged to its steady state of a constant profile, the
+    leading-order contribution to the Young's modulus takes the form
+    E_0(t) = E_min + (1 - E_min) * e^{-t * t_sc / t_{E}}.
+
+    :param _xi_arr: The spatial coordinate array.
+    :param _t: The timestep.
+    :param _t_E: The weakening timescale.
+    :param _E_min: The minimal Young's modulus value.
+    :param _params: All other parameters from the params dict.
+    :return: The quasi-steady expression for the porosity.
+    """
+    _t_sc = _params["scales"]["t"]
+    E_0 = _E_min + (1 - _E_min) * np.exp(-_t * _t_sc / _t_E)
+    # The next line is to ensure that the time-varying function goes into the
+    # steady state calculation
+    _params["phys"]["E_min"] = E_0
+    quasi_steady_state = SteadyState(_params, _xi_arr)
+    _phi_f_qss, _a_qss, _B_qss = quasi_steady_state.solve_analytic()
+    # _phi_f_qss is in xi coordinates, but we want to convert it to x coordinates
+    _x_arr = _a_qss + (1 - _a_qss) * _xi_arr
+    return _x_arr, _phi_f_qss
+
+
 """
 Loop over time steps and plot each frame
 """
@@ -217,7 +248,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-tau_period = 0.01
+tau_period = 0.001
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -240,7 +271,7 @@ if not gif:
     fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8 * ncols, (10 * nrows)/3), sharex=True)
     plt.subplots_adjust(wspace=1.0 * (ncols - 1))
     axs_list = [axs]
-    norm = mpl.colors.Normalize(vmin=0.0, vmax=N_time * delta_t)
+    norm = mpl.colors.Normalize(vmin=0.0, vmax=float(times[-1]))
     phi_f = Quantity(latex_quants[0], "Blues", 0)
     phi_f.mesh_fixed = np.log(1 - coord_arr) if log else coord_arr
     phi_f.set_ax(axs_list[0])
@@ -249,13 +280,16 @@ early_label = "Early boundary layer"
 lin_label = "Linear elasticity (analytic)"
 late_label = "$\\tilde{\\Phi}_{f,0}$"
 late_extra_label = "$\\tilde{\\Phi}_{f,0} + \\tilde{\\epsilon}\\tilde{\\Phi}_{f,1}$"
+quasi_steady_label = "Quasi-steady (analytic)"
 fenics_label = "Nonlinear elasticity (numeric)"
 n_end = int(N_time * delta_tau / tau_period) + 1
 # n_end = 50
 
+t_1, t_2 = 0.04, 1
 for n in range(n_end):
     m = n * int(tau_period / delta_tau) if n != n_end - 1 else -1
     t = float(times[m])
+    phase = 1 if t < t_1 else 2 if t < t_2 else 3
     N_x_current = np.count_nonzero(~np.isnan(data_dict["phi"][:, m]))
     # print(N_x_current)
     i_min, i_max = (N_x + 1 - N_x_current, N_x + 1)
@@ -267,14 +301,17 @@ for n in range(n_end):
     lin_quants = []
     late_bl_quants = []
     late_bl_extra_quants = []
+    quasi_steady_quants = []
     phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, Q_f, D_phi_early)
     phi_f_lin = phi_f_lin_elastic(coord_arr_n, t, Q_f, phi_f0, D_phi_early)
     phi_f_late = phi_f_bl_late(coord_arr_n, Q_f, D_phi_late)
     phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, Q_f, D_phi_late, phi_f0, nu)
+    x_arr_qss, phi_f_quasi_steady = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params)
     early_bl_quants.append(phi_f_early)
     lin_quants.append(phi_f_lin)
     late_bl_quants.append(phi_f_late)
     late_bl_extra_quants.append(phi_f_late_extra)
+    quasi_steady_quants.append(phi_f_quasi_steady)
 
     """
     Set up figure for the overall plot
@@ -294,17 +331,19 @@ for n in range(n_end):
         lin_n = np.log(lin_quants[i]) if log else lin_quants[i]
         # late_bl_n = np.log(late_bl_quants[i]) if log else late_bl_quants[i]
         # late_bl_extra_n = np.log(late_bl_extra_quants[i] if log else late_bl_extra_quants[i])
+        qss_n = np.log(quasi_steady_quants[i]) if log else quasi_steady_quants[i]
         fenics_arr_n = np.log(data_dict[name][:, m]) if log else data_dict[name][:, m]
         if gif:
             # line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--g", label=early_label)
             # line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r", label=late_label)
             line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color=colours[i], label=fenics_label)
             line_lin = ax.plot(coord_arr_n, lin_n, color="darkgoldenrod", linestyle='--', label=lin_label)
+            line_qss = ax.plot(x_arr_qss, qss_n, color="firebrick", linestyle="--", label=quasi_steady_label)
             ax.set_xlabel(plot_coord_tex)
             ax.set_ylabel(latex_quants[i])
             ax.set_xlim(xmin, xmax)
             ax.set_ylim(mins[i], maxes[i])
-            ax.set_title(f"Time = {round(t, 3)}")
+            ax.set_title(f"Phase {phase},\tTime = {round(t, 3)}")
         else:
             phi_f.f_fixed = fenics_arr_n
             line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--r",
@@ -315,6 +354,8 @@ for n in range(n_end):
             #                        label=late_label if n == 0 else None)
             # line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, linestyle='--',
             #                              color='goldenrod', label=late_extra_label if n == 0 else None)
+            line_qss = ax.plot(x_arr_qss, qss_n, color="firebrick", linestyle="--",
+                               label=quasi_steady_label if n == 0 else None)
             line_fenics = phi_f.plot(norm, t, fixed_domain=True,
                                      label=fenics_label if n == 0 else None)
         ax.legend()
