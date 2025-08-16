@@ -36,7 +36,7 @@ class Quantity:
         self.f = None
         self.f_fixed = None
         self.u = None
-        self.create_functions_from_mesh(mesh)
+        # self.create_functions_from_mesh(mesh)
         self.interpolate()
         self.ax = None
         self._bcs = []
@@ -128,9 +128,13 @@ class Quantity:
         """
         # If numpy arrays are passed, just return them back
         mesh_array = (_mesh if isinstance(_mesh, np.ndarray)
-                      else np.array(_mesh.coordinates()))
+                      else np.array(_mesh.coordinates())
+                      if isinstance(_mesh, Mesh)
+                      else np.array(_mesh.geometry.x))
         f_array = (f if isinstance(f, np.ndarray)
-                   else f.compute_vertex_values(_mesh))
+                   else f.compute_vertex_values(_mesh)
+                   if isinstance(f, Function)
+                   else f.x.array.copy())
         return mesh_array, f_array
 
     def get_average(self):
@@ -244,38 +248,43 @@ class Quantity:
             quantities[i].set_ax(axs[i])
 
     def annotate_panel(self, fig: plt.Figure, norm: mpl.colors.Normalize,
-                       xlabel: str, tlabel: str = "$t$", title: str = None,
-                       ymin: float = None, ymax: float = None):
+                       xlabel: str, ylabel: str = "name", tlabel: str = "$t$", title: str = None,
+                       ymin: float = None, ymax: float = None, colourbar: bool = True):
         """Sets up the colorbar for an axis and sets up the labels.
 
         :param fig: The overall figure object.
         :param norm: The Normalize object.
         :param xlabel: The x label.
+        :param ylabel: The y label.
         :param tlabel: The t label.
         :param title: The optional title of the panel.
         :param ymin: The optional minimum value of the quantity (for all time).
         :param ymax: The optional maximum value of the quantity (for all time).
+        :param colourbar: Whether we want to include a colourbar or not.
         """
-        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=self.cmap),
-                     orientation='vertical',
-                     label=tlabel, ax=self.ax)
-        self.label_plot(x_label=xlabel, title=title)
+        if colourbar:
+            fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=self.cmap),
+                         orientation='vertical',
+                         label=tlabel, ax=self.ax)
+        self.label_plot(x_label=xlabel, y_label=ylabel, title=title)
         if ymin and ymax:
             self.ax.set_ylim(ymin, ymax)
 
     @staticmethod
-    def annotate_plots(quantities, fig, norm, xlabel, tlabel="$t$", titles=None,
-                       mins=None, maxes=None):
+    def annotate_plots(quantities, fig, norm, xlabel, ylabel="name", tlabel="$t$", titles=None,
+                       mins=None, maxes=None, colourbar=True):
         """Sets up colorbars and labels for a list of quantities.
 
         :param quantities: The list of quantities.
         :param fig: The overall figure object.
         :param norm: The Normalize object.
         :param xlabel: The x label.
+        :param ylabel: The y label.
         :param tlabel: The t label.
         :param titles: The optional titles of the panels.
         :param mins: The optional minimal values of the quantities (for all time).
         :param maxes: The optional maximal values of the quantities (for all time).
+        :param colourbar: Whether we want to have a colourbar or not.
         """
         if titles is None:
             titles = [None] * len(quantities)
@@ -284,8 +293,8 @@ class Quantity:
         if maxes is None:
             maxes = [None] * len(quantities)
         for i, quantity in enumerate(quantities):
-            quantity.annotate_panel(fig, norm, xlabel, tlabel, titles[i],
-                                    mins[i], maxes[i])
+            quantity.annotate_panel(fig, norm, xlabel, ylabel, tlabel, titles[i],
+                                    mins[i], maxes[i], colourbar)
 
     def __str__(self):
         return self._name

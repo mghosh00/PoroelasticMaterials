@@ -1,15 +1,16 @@
 {
   "trial": "nondim_realistic_params",
-  "v": {
+  "Q_": {
     "name": "lower_bound",
     "expr": "t < 2.0 ? 1.0 : 0.0",
     "expr_old": "0.0",
-    "v_final": 1.0
+    "Q_f_final": 1.0
   },
   "comp": {
-    "delta_t": 0.0001,
-    "N_time": 1000,
-    "N_x": 1000
+    "delta_tau": 0.0001,
+    "N_time": 490,
+    "N_x": 1000,
+    "t(tau)": "tau < 1 ? tau : 10 * tau"
   },
   "phys": {
     "L": 1e-3,
@@ -38,6 +39,8 @@
   "bcs": {
     "c_left": 1.0,
     "u_s_right": 0.0,
-    "sigma_left": 0.0
+    "sigma_left": 0.0,
+    "Delta p": 0.1,
+    "p_f_right": 0.0
   }
 }

@@ -1,0 +1,38 @@
+{
+  "trial_params": {
+    "num_trials": 3,
+    "parent": "phys",
+    "trial": "enzymatic",
+    "sub_trials": [
+      "beta_E_0_01",
+      "beta_E_0_1",
+      "beta_E_1_0"
+    ],
+    "labels": [
+      "$\\beta_{E} = 0.0118$",
+      "$\\beta_{E} = 0.118$",
+      "$\\beta_{E} = 1.18$"
+    ]
+  },
+  "quant_params": {
+    "num_quants": 3,
+    "short_quants": [
+      "phi",
+      "E",
+      "c"
+    ],
+    "latex_quants": [
+      "$\\phi_{f}$",
+      "$E / E_0$",
+      "$c / c^{*}$"
+    ],
+    "colour_maps": [
+      "Blues",
+      "Purples",
+      "Reds"
+    ]
+  },
+  "fixed_domain": "False",
+  "log_time": "False",
+  "tlabel": "$t / t_E$"
+}

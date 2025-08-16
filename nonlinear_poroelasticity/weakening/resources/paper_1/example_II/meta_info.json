@@ -1,0 +1,38 @@
+{
+  "trial_params": {
+    "num_trials": 3,
+    "parent": "phys",
+    "trial": "porous_polymer",
+    "sub_trials": [
+      "Delta_p_0_1",
+      "Delta_p_0_25",
+      "Delta_p_0_5"
+    ],
+    "labels": [
+      "$\\Delta p / E_0 = 0.1$",
+      "$\\Delta p / E_0 = 0.25$",
+      "$\\Delta p / E_0 = 0.5$"
+    ]
+  },
+  "quant_params": {
+    "num_quants": 3,
+    "short_quants": [
+      "phi",
+      "E",
+      "c"
+    ],
+    "latex_quants": [
+      "$\\phi_{f}$",
+      "$E / E_0$",
+      "$c / c^{*}$"
+    ],
+    "colour_maps": [
+      "Blues",
+      "Purples",
+      "Reds"
+    ]
+  },
+  "fixed_domain": "False",
+  "log_time": "True",
+  "tlabel": "$t / t_E$"
+}

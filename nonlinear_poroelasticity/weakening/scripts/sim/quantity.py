@@ -36,7 +36,7 @@ class Quantity:
         self.f = None
         self.f_fixed = None
         self.u = None
-        self.create_functions_from_mesh(mesh)
+        # self.create_functions_from_mesh(mesh)
         self.interpolate()
         self.ax = None
         self._bcs = []
