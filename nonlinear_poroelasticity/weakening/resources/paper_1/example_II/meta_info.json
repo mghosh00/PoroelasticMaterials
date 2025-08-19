@@ -12,10 +12,16 @@
       "$\\Delta p / E_0 = 0.1$",
       "$\\Delta p / E_0 = 0.25$",
       "$\\Delta p / E_0 = 0.5$"
+    ],
+    "linestyles": [
+      "dotted",
+      "dashed",
+      "solid"
     ]
   },
   "quant_params": {
     "num_quants": 3,
+    "selected_subtrial": 1,
     "short_quants": [
       "phi",
       "E",
@@ -30,6 +36,24 @@
       "Blues",
       "Purples",
       "Reds"
+    ]
+  },
+  "response_params": {
+    "var_names": [
+      "a",
+      "v"
+    ],
+    "latex_var_names": [
+      "$a/L$",
+      "$v/v^{*}$"
+    ],
+    "colours": [
+      "darkgoldenrod",
+      "forestgreen"
+    ],
+    "yscales": [
+      "linear",
+      "log"
     ]
   },
   "fixed_domain": "False",

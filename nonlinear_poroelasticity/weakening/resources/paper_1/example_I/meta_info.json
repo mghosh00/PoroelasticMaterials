@@ -2,24 +2,25 @@
   "trial_params": {
     "num_trials": 3,
     "parent": "phys",
-    "trial": "enzymatic",
+    "trial": "cardiovascular_stent",
     "sub_trials": [
-      "beta_E_0_01",
-      "beta_E_0_1",
-      "beta_E_1_0"
+      "phi_f0_0_5",
+      "phi_f0_0_7",
+      "phi_f0_0_9"
     ],
     "labels": [
-      "$\\beta_{E} = 0.0118$",
-      "$\\beta_{E} = 0.118$",
-      "$\\beta_{E} = 1.18$"
+      "$\\phi_{f,0} = 0.5$",
+      "$\\phi_{f,0} = 0.7$",
+      "$\\phi_{f,0} = 0.9$"
     ],
     "linestyles": [
-      "solid",
       "dotted",
-      "dashed"
+      "dashed",
+      "solid"
     ]
   },
   "quant_params": {
+    "selected_subtrial": 1,
     "num_quants": 3,
     "short_quants": [
       "phi",
@@ -56,6 +57,6 @@
     ]
   },
   "fixed_domain": "False",
-  "log_time": "False",
+  "log_time": "True",
   "tlabel": "$t / t_E$"
 }

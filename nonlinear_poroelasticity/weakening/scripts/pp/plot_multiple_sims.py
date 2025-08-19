@@ -39,13 +39,18 @@ def get_input_info(files_dir: str, json_name: str = "params"):
     return data_path, plot_path, params
 
 
-meta_path = "paper_1/example_III"
+meta_path = "paper_1/example_II"
 _, _, meta_params = get_input_info(meta_path, "meta_info")
-num_trials = meta_params["trial_params"]["num_trials"]
-parents = [meta_params["trial_params"]["parent"]] * num_trials
-trials = [meta_params["trial_params"]["trial"]] * num_trials
-sub_trials = meta_params["trial_params"]["sub_trials"]
-labels = meta_params["trial_params"]["labels"]
+trial_params = meta_params["trial_params"]
+quant_params = meta_params["quant_params"]
+num_trials = trial_params["num_trials"]
+num_trace_trials = 1 if "selected_subtrial" in quant_params else num_trials
+ss_index = quant_params["selected_subtrial"] if num_trace_trials == 1 else -1
+parents = [trial_params["parent"]] * num_trials
+trials = [trial_params["trial"]] * num_trials
+sub_trials = trial_params["sub_trials"]
+sub_trials_trace = sub_trials if ss_index == -1 else [sub_trials[ss_index]]
+labels = trial_params["labels"]
 data_paths = []
 plot_paths = []
 param_sets = []
@@ -55,10 +60,10 @@ for i in range(num_trials):
     plot_paths.append(plot_path_i)
     param_sets.append(param_set_i)
 
-num_quants = meta_params["quant_params"]["num_quants"]
-short_quants = meta_params["quant_params"]["short_quants"]
-latex_quants = meta_params["quant_params"]["latex_quants"]
-colour_maps = meta_params["quant_params"]["colour_maps"]
+num_quants = quant_params["num_quants"]
+short_quants = quant_params["short_quants"]
+latex_quants = quant_params["latex_quants"]
+colour_maps = quant_params["colour_maps"]
 fixed_domain = True if meta_params["fixed_domain"] == "True" else False
 plot_coord = "x" if fixed_domain else "xi"
 plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
@@ -86,9 +91,9 @@ times = np.array(times)
 """
 Retrieving the data and making the quantity instances
 """
-
-data_dicts = {i: {q: np.array(0) for q in short_quants} for i in range(num_trials)}
-for i, data_path in enumerate(data_paths):
+data_paths_trace = data_paths if ss_index == -1 else [data_paths[ss_index]]
+data_dicts = {i: {q: np.array(0) for q in short_quants} for i in range(num_trace_trials)}
+for i, data_path in enumerate(data_paths_trace):
     for q in short_quants:
         q_array = pd.read_csv(f"{data_path}/_{q}_{plot_coord}.csv").to_numpy()[:, 2:]
         data_dicts[i][q] = q_array
@@ -96,7 +101,7 @@ for i, data_path in enumerate(data_paths):
 # Recording the maximum and minimum values so that the plots are on the same scale
 mins, maxes = [], []
 for q in short_quants:
-    q_arr_all = np.hstack([data_dicts[i][q] for i in range(num_trials)])
+    q_arr_all = np.hstack([data_dicts[i][q] for i in range(num_trace_trials)])
     q_min, q_max = np.min(q_arr_all), np.max(q_arr_all)
     q_range = q_max - q_min
     mins.append(q_min - 0.04 * q_range)
@@ -109,15 +114,18 @@ for j in range(num_quants):
     inner_q_list[j]._mesh = coord_arr
 
 # Make copies of the quantities so that they correspond to different axes
-quantities_all = [inner_q_list] * num_trials
+quantities_all = [inner_q_list] * num_trace_trials
 
 """
 Plotting
 """
 
-nrows, ncols = num_quants, num_trials
-fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, (10 * nrows)/3),
+nrows, ncols = num_quants, num_trace_trials
+figsize = (4 * ncols, (10 * nrows) / 3)
+fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize,
                         sharex=True)
+if ss_index != -1:
+    axs = [[axs[j]] for j in range(num_quants)]
 plt.subplots_adjust(wspace=0.3)
 t_start, t_end = float(times[0]), float(times[-1])
 if log_time:
@@ -125,9 +133,10 @@ if log_time:
 else:
     norm = mpl.colors.Normalize(vmin=0.0, vmax=t_end)
 
-for i in range(num_trials):
+for i in range(num_trace_trials):
     quantities = quantities_all[i]
-    Quantity.set_axs(quantities, [axs[j][i] for j in range(num_quants)])
+    axs_list = [axs[j][i] for j in range(num_quants)]
+    Quantity.set_axs(quantities, axs_list)
     for m in range(num_times):
         t = float(times[int(m * len(times) / num_times)])
         for j, q in enumerate(short_quants):
@@ -137,7 +146,8 @@ for i in range(num_trials):
     ylabel = "name" if i == 0 else None
     Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex, ylabel=ylabel,
                             mins=mins, maxes=maxes, colourbar=False)
-    quantities[0].ax.set_title(labels[i])
+    if ss_index == -1:
+        quantities[0].ax.set_title(labels[i])
 
 # Adding the colourbars
 for j, q in enumerate(quantities_all[0]):
@@ -153,3 +163,42 @@ if not os.path.exists(output_plot_path):
     os.makedirs(output_plot_path)
 # Save figure
 fig.savefig(f"{output_plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
+
+"""
+Plots of a, v and other time-dependent variables
+"""
+response_params = meta_params["response_params"]
+var_names = response_params["var_names"]
+num_vars = len(var_names)
+latex_vars = response_params["latex_var_names"]
+colours = response_params["colours"]
+yscales = response_params["yscales"]
+line_styles = trial_params["linestyles"]
+data_dicts = {i: {f: np.array(0) for f in var_names} for i in range(num_trials)}
+times_list = []
+for i, data_path in enumerate(data_paths):
+    response_df = pd.read_csv(f"{data_path}/_responses.csv", index_col=0)
+    times_list.append(response_df["Time"].to_numpy())
+    for f in var_names:
+        f_array = response_df[f]
+        data_dicts[i][f] = f_array
+
+fig_resp, axs_resp = plt.subplots(nrows=num_vars, ncols=1, figsize=(6, 5 * num_vars),
+                                  sharex=True)
+plt.subplots_adjust(hspace=0.3)
+for j in range(num_vars):
+    f, f_latex, colour, yscale, ax = var_names[j], latex_vars[j], colours[j], yscales[j], axs_resp[j]
+    for i in range(num_trials):
+        times, line_style, label = times_list[i], line_styles[i], labels[i]
+        f_arr = data_dicts[i][f]
+        if f == "v":
+            # ax.set_xlim(times[0], times[-1])
+            times, f_arr = times[1:], f_arr[1:]
+        ax.plot(times, f_arr, color=colour, linestyle=line_style, label=label)
+        ax.set_xlabel(tlabel)
+        ax.set_ylabel(f_latex)
+        if log_time:
+            ax.set_xscale("log")
+        ax.set_yscale(yscale)
+    ax.legend()
+fig_resp.savefig(f"{output_plot_path}/_responses.png", bbox_inches="tight")

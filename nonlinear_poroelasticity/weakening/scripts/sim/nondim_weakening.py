@@ -48,6 +48,7 @@ from fenics import *
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import pandas as pd
 import json
 
 from nonlinear_poroelasticity.weakening.scripts import Quantity
@@ -60,7 +61,7 @@ Reading in our parameters
 """
 parent = "phys"
 trial = "cardiovascular_stent"
-sub_trial = "thickness"
+sub_trial = "phi_f0_0_5"
 param_file = open(f"resources/{parent}/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -72,6 +73,9 @@ num_quants = 8
 
 # Whether to save data or not
 saving = [True] * num_quants
+
+# Whether we use an early time solution to predict initial values of v or not
+early_time_soln = False
 
 """
 Computational parameters
@@ -90,8 +94,8 @@ N_x = params["comp"]["N_x"]
 log_time = True if "log_time" in params["comp"] else False
 
 # The frequency of plotting
-num_lines = N_time / 1
-# num_lines = 50
+# num_lines = N_time / 1
+num_lines = 50
 plotting_freq = int(N_time / num_lines)
 
 """
@@ -133,9 +137,13 @@ v_s_star = Constant(params["scales"]["v_s"])
 
 # Timescales (only parameters other than nu and phi_f0 in the equations)
 t_phi = (mu * L ** 2) / (k_0 * E_star)
-t_v = L / v_star
-t_v_f = L / v_f_star
-t_v_s = L / v_s_star
+if "Delta p" in params["bcs"]:
+    t_p = (mu * L ** 2) / (k_0 * params["bcs"]["Delta p"] * E_star)
+    t_v = t_p
+else:
+    t_v = L / v_star
+t_v_f = t_v
+t_v_s = t_v
 t_E = 1 / (beta_E * c_star)
 t_c = L ** 2 / D_m
 
@@ -176,7 +184,7 @@ P1 = FiniteElement("CG", mesh.ufl_cell(), 1)
 P0 = FiniteElement("R", mesh.ufl_cell(), 0)
 
 # For vars phi_f, E, c, sigma, u_s, p_f, v, a
-element = MixedElement([P1, P1, P1, P1, P1, P1, P1, P0])
+element = MixedElement([P1, P1, P1, P1, P1, P1, P0, P0])
 V = FunctionSpace(mesh, element)
 
 # Time expression and time array for a simulation with changing timestep
@@ -186,6 +194,10 @@ t_next = Expression(t_tau, degree=1, tau=delta_tau, delta_tau=delta_tau, N_time=
 delta_t = t_next - t
 t_final = float(Expression(t_tau, degree=1, tau=N_time * delta_tau,
                            delta_tau=delta_tau, N_time=N_time, domain=mesh)(0.0))
+
+# For calculating the initial value of v (from asymptotic early-time analysis)
+D_phi = (1 - nu_num) / (1 + nu_num) / (1 - 2 * nu_num) * t_sc_num / t_v_num
+v_0 = 1 / np.sqrt(np.pi * D_phi * float(t(0.0))) if early_time_soln else 10000
 
 """
 Function to change spatial coordinates and get to the correct mesh.
@@ -254,7 +266,7 @@ c = Quantity("$c$", "Reds", 2, mesh)
 sigma = Quantity("$\\sigma_{xx}'$", "Greys", 3, mesh)
 u_s = Quantity("$u_s$", "Greens", 4, mesh)
 p_f = Quantity("$p_f$", "Oranges", 5, mesh)
-v = Quantity("$v$", "RdPu", 6, mesh)
+# v = Quantity("$v$", "RdPu", 6, mesh)
 
 # Set up the functions from the joint space
 v_phi, v_E, v_c, v_sigma, v_us, v_pf, v_v, v_a = TestFunctions(V)
@@ -273,7 +285,7 @@ def retrieve_ic(_xi, data_array: np.array):
     return data_array[index]
 
 
-short_quants = ["phi", "E", "p_f", "sigma", "u_s", "v_s", "c", "v"]
+short_quants = ["phi", "E", "p_f", "sigma", "u_s", "v_s", "c"]
 # short_quants = ["phi", "E", "c", "sigma", "u_s", "p_f", "v_s"]
 data_path = f"resources/{parent}/{trial}/{sub_trial}/data"
 # ic_file_names = [f"{data_path}/{q}_xi.csv" for q in short_quants]
@@ -284,15 +296,15 @@ data_path = f"resources/{parent}/{trial}/{sub_trial}/data"
 phi_f0_ic = 'phi_f0 - gamma * (1 - phi_f0) * (1 + nu) * (1 - 2 * nu) / (1 - nu) * x[0]'
 E_ic = f'{params["ics"]["E"]} * (1 + 0 * x[0])'
 w_0 = Expression(('phi_f0', E_ic, 'c_minus + (c_plus - c_minus) * x[0]',
-                  '0.0', params["ics"]["u_s"], '0.0', '0.0', 'a_0'),
-                 degree=1, phi_f0=phi_f0, a_0=a_list[0],
+                  '0.0', params["ics"]["u_s"], '0.0', 'v_0', 'a_0'),
+                 degree=1, phi_f0=phi_f0, v_0=v_0, a_0=a_list[0],
                  E_min=E_min, gamma=t_phi_num/t_v_num, nu=nu,
                  c_minus=c_minus, c_plus=c_plus)
 w_old = project(w_0, V)
 
 # w_old = Function(V)
 w = Function(V)
-w_phi, w_E, w_c, w_sigma, w_us, w_pf, w_v, a = split(w)
+w_phi, w_E, w_c, w_sigma, w_us, w_pf, v, a = split(w)
 phi_old, E_old, c_old, sigma_old, u_s_old, p_f_old, v_old, a_old = split(w_old)
 # _phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old = w_old.split()
 # w_old_list = [_phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old]
@@ -302,14 +314,14 @@ phi_old, E_old, c_old, sigma_old, u_s_old, p_f_old, v_old, a_old = split(w_old)
 #     f_old.interpolate(lambda y: retrieve_ic(y, ics[i]))
 # _a_old.interpolate(lambda y: retrieve_ic(y, a_list))
 
-phi_f.f, E.f, c.f, sigma.f, u_s.f, p_f.f, v.f, a_f = w_old.split(deepcopy=True)
+phi_f.f, E.f, c.f, sigma.f, u_s.f, p_f.f, v_, a_f = w_old.split(deepcopy=True)
 phi_f.set_sym_functions(w_phi, v_phi, phi_old)
 E.set_sym_functions(w_E, v_E, E_old)
 sigma.set_sym_functions(w_sigma, v_sigma, sigma_old)
 c.set_sym_functions(w_c, v_c, c_old)
 u_s.set_sym_functions(w_us, v_us, u_s_old)
 p_f.set_sym_functions(w_pf, v_pf, p_f_old)
-v.set_sym_functions(w_v, v_v, v_old)
+# v.set_sym_functions(w_v, v_v, v_old)
 
 # Define also the known functions k_{e} and \\sigma_{e} (of porosity)
 
@@ -514,7 +526,7 @@ v_s_ = Quantity("$v_{s}$", "YlOrBr", 7, mesh)
 # We don't know the initial array v_s
 v_s_.f = np.full(N_x + 1, np.nan)
 # quantities = [phi_f, E, c, sigma, u_s, v_s_, p_f]
-quantities = [phi_f, E, p_f, sigma, u_s, v_s_, c, v]
+quantities = [phi_f, E, p_f, sigma, u_s, v_s_, c]
 # quantities = [phi_f, E, c]
 # quantities = [u_s, p_f]
 
@@ -529,7 +541,7 @@ fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8, (10 * nrows)/3), s
 plt.subplots_adjust(wspace=1.0 * (ncols - 1))
 axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
 # axs_list = [axs[i] for i in range(nrows)]
-Quantity.set_axs(quantities, axs_list)
+Quantity.set_axs(quantities, axs_list[:-1])
 if log_time:
     norm = mpl.colors.LogNorm(vmin=float(t(0.0)), vmax=t_final)
 else:
@@ -571,13 +583,13 @@ dEg_dx = (E.u * g).dx(0)
 # Find intermediate expressions for the solid and fluid velocities
 # Below are two different expressions that we need for the solid velocity (they
 # are equivalent definitions)
-_Q_f = Expression("val", degree=1, val=10000, domain=mesh)
-v_s = t_v_s * (v.u / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
+_Q_f = Expression("val", degree=1, val=v_(0.0), domain=mesh)
+v_s = t_v_s * (v / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
 _v_s = t_v_s / (1 - phi_f.u) * ((1 - phi_f0) * dus_dt / t_sc - (1 - xi) * da_dt * (phi_f.u - phi_f0) / t_sc)
-v_f = t_v_f * (v.u / t_v - (1 - phi_f.u) * k_div_phi * dEg_dx / ((1 - a) * t_phi))
+v_f = t_v_f * (v / t_v - (1 - phi_f.u) * k_div_phi * dEg_dx / ((1 - a) * t_phi))
 _v_f = t_v_f * (_v_s / t_v_s - k_div_phi * dEg_dx / ((1 - a) * t_phi))
 _v = t_v * (_v_s / t_v_s - k * dEg_dx / ((1 - a) * t_phi))
-phi_f_v_f = (_Q_f - (1 - phi_f.u) * _v_s)
+phi_f_v_f = (v - (1 - phi_f.u) * _v_s)
 __v = (phi_f.u * _v_f + (1 - phi_f.u) * _v_s)
 # _v = Q_f
 
@@ -588,9 +600,9 @@ Define the weak form
 # Weak form for the phi equation
 Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
            ((1 / (1 - a))**2 * (1 - phi_f.u) * k * dEg_dx / t_phi -
-            (1 / (1 - a)) * phi_f.u * (_v / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
-           (1 / (1 - a)) * (_v / t_v) * phi_f.v * ds(2) -
-           (1 / (1 - a)) * (_v / t_v - da_dt / t_sc) * phi_f.v * ds(1))
+            (1 / (1 - a)) * phi_f.u * (v / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
+           (1 / (1 - a)) * (v / t_v) * phi_f.v * ds(2) -
+           (1 / (1 - a)) * (v / t_v - da_dt / t_sc) * phi_f.v * ds(1))
 # Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
 #            ((1 / (1 - a))**2 * phi_f.u * k_e.u * dEg_dx / t_phi -
 #             (1 / (1 - a)) * phi_f.u * (Q_f / t_v_f + xi * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
@@ -618,8 +630,8 @@ Fun_c = (((phi_f.u * dc_dt + dphi_dt * c.u -
          1/ (1 - a) *
          (phi_f.u * c.u.dx(0) / ((1 - a) * t_c) -
           (phi_f_v_f / t_v_f - phi_f.u * (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0)) * dx +
-         c.u * _Q_f / (1 - a) / t_v_f * c.v * ds(2) +
-         (c.u * da_dt / t_sc - _Q_f * c_minus / t_v) / (1 - a) * c.v * ds(1))
+         c.u * v / (1 - a) / t_v_f * c.v * ds(2) +
+         (c.u * da_dt / t_sc - v * c_minus / t_v) / (1 - a) * c.v * ds(1))
 
 # Weak form for the Terzaghi stress (sort of Lagrange multiplier)
 Fun_sigma = (sigma.u - (E.u * g)) * sigma.v * dx
@@ -633,9 +645,9 @@ Fun_pf = (sigma.u - p_f.u) * p_f.v.dx(0) * dx + (sigma.u - p_f.u) * p_f.v * ds(1
 
 # Weak form for the phase-averaged velocity
 if "Q_f" in params:
-    Fun_v = (((Q_f - v.u) / t_v) * v_v * dx)
+    Fun_v = (((Q_f - v) / t_v) * v_v * dx)
 else:
-    Fun_v = (v.u - _v) * v_v * dx
+    Fun_v = (v - _v) * v_v * dx
 
 # Weak form for the moving boundary
 Fun_a = ((phi_f.u - 1) + (1 - phi_f0) / (1 - a)) * v_a * dx
@@ -652,7 +664,7 @@ Loop over time steps and solve
 """
 t_list = [float(t(0.0))]
 # Lists of averages to record (Q_f, E_avg, c_avg, phi_f_avg)
-Q_f_list = []
+Q_f_list = [v_(0.0)]
 avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get_average()]}
 c_right_list = [float(c_plus(0.0))]
 # integral_v_list = [float(integral_v(0.0))]
@@ -668,7 +680,7 @@ for n in range(N_time):
 
     # Solve (iterate until BC for E is consistent)
     solver.solve()
-    phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v.f, a_f = w.split(deepcopy=True)
+    phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v_, a_f = w.split(deepcopy=True)
     _, phi_f_arr = fenics_to_numpy(mesh, phi_f.f)
     a_list.append(a_f(0.0))
 
@@ -676,7 +688,7 @@ for n in range(N_time):
     #     # We need an idea of what Q_f was at t = 0. We approximate this by whatever
     #     # Q_f is at t = delta_t.
     #     Q_f_list.append(float(fenics_to_numpy(mesh, v.f)[1][0]))
-    _Q_f.val = float(fenics_to_numpy(mesh, v.f)[1][0])
+    _Q_f.val = v_(0.0)
     Q_f_list.append(float(_Q_f(0.0)))
     c_right_list.append(float(fenics_to_numpy(mesh, c.f)[1][-1]))
 
@@ -753,7 +765,7 @@ fig.savefig(f"{plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
 fig_Q_a, axs_Q_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20 / 3), sharex=True)
 ax_Q, ax_a = axs_Q_a
 times = np.array(t_list)
-ax_Q.plot(times[1:], np.array(Q_f_list), lw=2,
+ax_Q.plot(times, np.array(Q_f_list), lw=2,
           color='forestgreen')
 ax_Q.set_ylabel("$v(t)$")
 ax_Q.set_xscale("log")
@@ -787,3 +799,9 @@ ax_all.set_xlabel("$t$")
 ax_all.legend()
 plt.subplots_adjust(hspace=0.3, wspace=0.4)
 fig_avgs.savefig(f"{plot_path}/averages.png", bbox_inches="tight")
+
+if saving[0]:
+    # Save various time-dependent variables to a dataframe
+    response_df = pd.DataFrame({"Time": times, "a": np.array(a_list), "v": np.array(Q_f_list),
+                              "phi_f_bar": phi_f_avg_arr, "E_bar": E_avg_arr, "c_bar": c_avg_arr})
+    response_df.to_csv(f"{data_path}/_responses.csv")
