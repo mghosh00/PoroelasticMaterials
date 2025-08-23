@@ -33,30 +33,65 @@
       "$c / c^{*}$"
     ],
     "colour_maps": [
-      "Blues",
-      "Purples",
-      "Reds"
+      "inferno_r",
+      "inferno_r",
+      "inferno_r"
+    ],
+    "cmap_bounds": [
+      0.0,
+      1.0
     ]
   },
   "response_params": {
     "var_names": [
       "a",
-      "v"
+      "v",
+      "phi_r"
     ],
     "latex_var_names": [
       "$a/L$",
-      "$v/v^{*}$"
+      "$v/v^{*}$",
+      "$\\phi_{r}$"
     ],
     "colours": [
       "darkgoldenrod",
-      "forestgreen"
+      "forestgreen",
+      "mediumblue"
     ],
     "yscales": [
       "linear",
-      "log"
+      "log",
+      "linear"
+    ],
+    "nrows": 3,
+    "ncols": 1,
+    "figsize": [
+      6,
+      10
     ]
   },
   "fixed_domain": "False",
   "log_time": "True",
-  "tlabel": "$t / t_E$"
+  "tlabel": "$t / t_E$",
+  "avg_params": {
+    "names": [
+      "phi_f_bar",
+      "E_bar",
+      "c_bar"
+    ],
+    "figsize": [
+      10,
+      3.33333
+    ],
+    "colours": [
+      "mediumblue",
+      "indigo",
+      "red"
+    ],
+    "latex_labels": [
+      "$\\overline{\\phi_{f}}$",
+      "$\\overline{E}/E_0$",
+      "$\\overline{c}/c^{*}$"
+    ]
+  }
 }

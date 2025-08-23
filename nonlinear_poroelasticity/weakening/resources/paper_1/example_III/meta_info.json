@@ -4,19 +4,19 @@
     "parent": "phys",
     "trial": "enzymatic",
     "sub_trials": [
-      "beta_E_0_01",
+      "beta_E_1_0",
       "beta_E_0_1",
-      "beta_E_1_0"
+      "beta_E_0_01"
     ],
     "labels": [
-      "$\\beta_{E} = 0.0118$",
-      "$\\beta_{E} = 0.118$",
-      "$\\beta_{E} = 1.18$"
+      "$t_{E} = 2.1\\times 10^{3}\\mathrm{s}$",
+      "$t_{E} = 2.1\\times 10^{4}\\mathrm{s}$",
+      "$t_{E} = 2.1\\times 10^{5}\\mathrm{s}$"
     ],
     "linestyles": [
-      "solid",
       "dotted",
-      "dashed"
+      "dashed",
+      "solid"
     ]
   },
   "quant_params": {
@@ -40,22 +40,53 @@
   "response_params": {
     "var_names": [
       "a",
-      "v"
+      "v",
+      "phi_r"
     ],
     "latex_var_names": [
       "$a/L$",
-      "$v/v^{*}$"
+      "$v/v^{*}$",
+      "$\\phi_{r}$"
+    ],
+    "nrows": 1,
+    "ncols": 3,
+    "figsize": [
+      14,
+      3.333333333
     ],
     "colours": [
       "darkgoldenrod",
-      "forestgreen"
+      "forestgreen",
+      "mediumblue"
     ],
     "yscales": [
       "linear",
-      "log"
+      "log",
+      "linear"
     ]
   },
   "fixed_domain": "False",
   "log_time": "False",
-  "tlabel": "$t / t_E$"
+  "tlabel": "$t / t_E$",
+  "avg_params": {
+    "names": [
+      "phi_f_bar",
+      "E_bar",
+      "c_bar"
+    ],
+    "figsize": [
+      12,
+      3.33333
+    ],
+    "colours": [
+      "mediumblue",
+      "indigo",
+      "red"
+    ],
+    "latex_labels": [
+      "$\\overline{\\phi_{f}}$",
+      "$\\overline{E}/E_0$",
+      "$\\overline{c}/c^{*}$"
+    ]
+  }
 }

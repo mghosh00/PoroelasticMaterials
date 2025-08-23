@@ -39,7 +39,7 @@ def get_input_info(files_dir: str, json_name: str = "params"):
     return data_path, plot_path, params
 
 
-meta_path = "paper_1/example_II"
+meta_path = "paper_1/example_III"
 _, _, meta_params = get_input_info(meta_path, "meta_info")
 trial_params = meta_params["trial_params"]
 quant_params = meta_params["quant_params"]
@@ -64,6 +64,7 @@ num_quants = quant_params["num_quants"]
 short_quants = quant_params["short_quants"]
 latex_quants = quant_params["latex_quants"]
 colour_maps = quant_params["colour_maps"]
+cmap_bounds = tuple(quant_params["cmap_bounds"]) if "cmap_bounds" in quant_params else (0.3, 1.0)
 fixed_domain = True if meta_params["fixed_domain"] == "True" else False
 plot_coord = "x" if fixed_domain else "xi"
 plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
@@ -110,7 +111,8 @@ mins, maxes = None, None
 num_times = len(data_dicts[0][short_quants[0]][0, :])
 inner_q_list = []
 for j in range(num_quants):
-    inner_q_list.append(Quantity(latex_quants[j], colour_maps[j], j))
+    inner_q_list.append(Quantity(latex_quants[j], colour_maps[j], j,
+                                 cmap_bounds=cmap_bounds))
     inner_q_list[j]._mesh = coord_arr
 
 # Make copies of the quantities so that they correspond to different axes
@@ -168,13 +170,16 @@ fig.savefig(f"{output_plot_path}/_time_traces_{plot_coord}.png", bbox_inches="ti
 Plots of a, v and other time-dependent variables
 """
 response_params = meta_params["response_params"]
+avg_params = meta_params["avg_params"]
 var_names = response_params["var_names"]
+avg_names = avg_params["names"]
 num_vars = len(var_names)
 latex_vars = response_params["latex_var_names"]
 colours = response_params["colours"]
 yscales = response_params["yscales"]
+nrows_resp, ncols_resp, figsize_resp = response_params["nrows"], response_params["ncols"], tuple(response_params["figsize"])
 line_styles = trial_params["linestyles"]
-data_dicts = {i: {f: np.array(0) for f in var_names} for i in range(num_trials)}
+data_dicts = {i: {f: np.array(0) for f in var_names + avg_names} for i in range(num_trials)}
 times_list = []
 for i, data_path in enumerate(data_paths):
     response_df = pd.read_csv(f"{data_path}/_responses.csv", index_col=0)
@@ -182,10 +187,13 @@ for i, data_path in enumerate(data_paths):
     for f in var_names:
         f_array = response_df[f]
         data_dicts[i][f] = f_array
+    for avg in avg_names:
+        avg_array = response_df[avg]
+        data_dicts[i][avg] = avg_array
 
-fig_resp, axs_resp = plt.subplots(nrows=num_vars, ncols=1, figsize=(6, 5 * num_vars),
+fig_resp, axs_resp = plt.subplots(nrows=nrows_resp, ncols=ncols_resp, figsize=figsize_resp,
                                   sharex=True)
-plt.subplots_adjust(hspace=0.3)
+plt.subplots_adjust(wspace=0.3)
 for j in range(num_vars):
     f, f_latex, colour, yscale, ax = var_names[j], latex_vars[j], colours[j], yscales[j], axs_resp[j]
     for i in range(num_trials):
@@ -202,3 +210,31 @@ for j in range(num_vars):
         ax.set_yscale(yscale)
     ax.legend()
 fig_resp.savefig(f"{output_plot_path}/_responses.png", bbox_inches="tight")
+
+"""
+Plot of averages
+"""
+
+figsize_avgs = tuple(avg_params["figsize"])
+colours_avg = avg_params["colours"]
+latex_labels_avg = avg_params["latex_labels"]
+# Create figure for various averages over time
+fig_avgs, ax_all = plt.subplots(figsize=figsize_avgs)
+phi_f_avg_arr, E_avg_arr, c_avg_arr = (data_dicts[ss_index][avg_names[0]],
+                                       data_dicts[ss_index][avg_names[1]],
+                                       data_dicts[ss_index][avg_names[2]])
+# Have a twin axis
+ax_phi = ax_all.twinx()
+# Plot E_avg, c_avg and phi_r over time on the same axis
+ax_phi.plot(times, phi_f_avg_arr, lw=2,
+            color=colours_avg[0], label=latex_labels_avg[0])
+ax_all.plot(times, E_avg_arr, lw=2,
+            color=colours_avg[1], label=latex_labels_avg[1])
+ax_all.plot(times, c_avg_arr, lw=2,
+            color=colours_avg[2], label=latex_labels_avg[2])
+ax_all.set_xlabel(tlabel)
+if log_time:
+    ax_all.set_xscale("log")
+ax_all.legend(loc="center left")
+ax_phi.legend(loc="center right")
+fig_avgs.savefig(f"{output_plot_path}/_averages.png", bbox_inches="tight")

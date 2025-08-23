@@ -16,7 +16,8 @@ class Quantity:
     """
 
     def __init__(self, name: str, cmap_name: str, pos: int,
-                 mesh: Mesh = None, expression: Expression = None):
+                 mesh: Mesh = None, expression: Expression = None,
+                 cmap_bounds: tuple = (0.3, 1.0)):
         """Initializer
 
         :param name: The name of the quantity.
@@ -24,11 +25,13 @@ class Quantity:
         :param pos: The position on the plot.
         :param mesh: The current mesh of interest.
         :param expression: An optional expression for the quantity (if it is known).
+        :param cmap_bounds: Where the colourmap bounds (between 0 and 1) are.
         """
         self._name = name
         whole_map = mpl.colormaps[cmap_name]
         self.cmap = mpl.colors.LinearSegmentedColormap.from_list(f"{cmap_name}_subset",
-                                                                 whole_map(np.linspace(0.3, 1.0, 100)))
+                                                                 whole_map(np.linspace(
+                                                                     cmap_bounds[0], cmap_bounds[1], 100)))
         self._pos = pos
         self._mesh = mesh
         self.mesh_fixed = None

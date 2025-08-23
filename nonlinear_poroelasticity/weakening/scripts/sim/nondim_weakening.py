@@ -2,15 +2,15 @@
 This Python code solves the following nonlinear, nondimensional general system for the
 porosity, Young's modulus and solute concentration
 
-        \\frac{t_{\\phi}}{[t]}\\frac{D^{f}\\phi_{f}}{Dt} = \\phi_{f}\\frac{\\p}{\\p x}
-        \\left[k_{e}(\\phi_{f})\\frac{\\p}{\\p x}\\left(E\\sigma_{e}(\\phi_{f})\\right)\\right],
-        \\frac{t_{E}}{[t]}\\frac{D^{s}E}{Dt} = -cE,
+        \\frac{t_{\\phi}}{[t]}\\frac{D\\phi_{f}}{Dt} = \\phi_{f}\\frac{\\p}{\\p x}
+        \\left[(1 - \\phi_{f})k(\\phi_{f})\\frac{\\p}{\\p x}\\left(E\\g(\\phi_{f})\\right)\\right],
+        \\frac{t_{E}}{[t]}\\frac{D^{s}E}{Dt} = -c\\left(E - E_{\\mathrm{min}}\\right),
         \\frac{t_{c}}{[t]}\\phi_{f}\\frac{D^{f}c}{Dt} = \\frac{\\p}{\\p x}\\left(
         \\phi_{f}\\frac{\\p c}{\\p x}\\right),
 
-where the operators D^{f} and D^{s} are the material derivatives for the fluid and solid
-fractions respectively. These operators are dependent on E, k_{e}, \\sigma_{e} (both given
-functions of the porosity) and v(t), which is a prescribed phase-averaged velocity.
+where the operators D, D^{f} and D^{s} are the material derivatives for the averaged velocity,
+fluid velocity and solid velocity respectively. These operators are dependent on E, k, g
+(both given functions of the porosity) and v(t), which is the phase-averaged velocity.
 
 The initial conditions are at t = 0:
 
@@ -19,7 +19,8 @@ The initial conditions are at t = 0:
 with boundary conditions (on a domain [a(t), 1] with left moving boundary):
 
         v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = 1,
-        c = 1 at x = a(t), \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}cv_{f} = 0 at x = 1,
+        c = \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}(c - c_{-\\infty})v_{f} = 0 at x = a(t),
+        \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} = 0 at x = 1,
 
 The moving boundary can be determined by the following implicit relation:
 
@@ -60,8 +61,8 @@ plt.rcParams['text.usetex'] = True
 Reading in our parameters
 """
 parent = "phys"
-trial = "cardiovascular_stent"
-sub_trial = "phi_f0_0_5"
+trial = "enzymatic"
+sub_trial = "beta_E_1_0"
 param_file = open(f"resources/{parent}/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -272,47 +273,21 @@ p_f = Quantity("$p_f$", "Oranges", 5, mesh)
 v_phi, v_E, v_c, v_sigma, v_us, v_pf, v_v, v_a = TestFunctions(V)
 
 
-def retrieve_ic(_xi, data_array: np.array):
-    """If we wish to set up initial conditions with a numpy
-    array, this function will be used in the interpolation.
-
-    :param _xi: The FEniCS coordinate
-    :param data_array: The data array
-    :return: The value of the function at the specific coordinate
-    """
-    _N_x = len(data_array)
-    index = int(float(_xi) * _N_x)
-    return data_array[index]
-
-
 short_quants = ["phi", "E", "p_f", "sigma", "u_s", "v_s", "c"]
 # short_quants = ["phi", "E", "c", "sigma", "u_s", "p_f", "v_s"]
 data_path = f"resources/{parent}/{trial}/{sub_trial}/data"
-# ic_file_names = [f"{data_path}/{q}_xi.csv" for q in short_quants]
-# ics = [pd.read_csv(ic_file_names[i]).to_numpy()[:, -1]
-#        for i in range(len(short_quants))]
 
 # Define the initial conditions
-phi_f0_ic = 'phi_f0 - gamma * (1 - phi_f0) * (1 + nu) * (1 - 2 * nu) / (1 - nu) * x[0]'
-E_ic = f'{params["ics"]["E"]} * (1 + 0 * x[0])'
-w_0 = Expression(('phi_f0', E_ic, 'c_minus + (c_plus - c_minus) * x[0]',
+w_0 = Expression(('phi_f0', params["ics"]["E"], 'c_minus + (c_plus - c_minus) * x[0]',
                   '0.0', params["ics"]["u_s"], '0.0', 'v_0', 'a_0'),
                  degree=1, phi_f0=phi_f0, v_0=v_0, a_0=a_list[0],
                  E_min=E_min, gamma=t_phi_num/t_v_num, nu=nu,
                  c_minus=c_minus, c_plus=c_plus)
 w_old = project(w_0, V)
 
-# w_old = Function(V)
 w = Function(V)
 w_phi, w_E, w_c, w_sigma, w_us, w_pf, v, a = split(w)
 phi_old, E_old, c_old, sigma_old, u_s_old, p_f_old, v_old, a_old = split(w_old)
-# _phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old = w_old.split()
-# w_old_list = [_phi_old, _E_old, _c_old, _sigma_old, _u_s_old, _a_old]
-#
-# # Set the initial conditions
-# for i, f_old in enumerate(w_old_list):
-#     f_old.interpolate(lambda y: retrieve_ic(y, ics[i]))
-# _a_old.interpolate(lambda y: retrieve_ic(y, a_list))
 
 phi_f.f, E.f, c.f, sigma.f, u_s.f, p_f.f, v_, a_f = w_old.split(deepcopy=True)
 phi_f.set_sym_functions(w_phi, v_phi, phi_old)
@@ -323,18 +298,18 @@ u_s.set_sym_functions(w_us, v_us, u_s_old)
 p_f.set_sym_functions(w_pf, v_pf, p_f_old)
 # v.set_sym_functions(w_v, v_v, v_old)
 
-# Define also the known functions k_{e} and \\sigma_{e} (of porosity)
+# Define also the known functions k and g (of porosity)
 
 
-def compute_k_e(_phi_f, _phi_f0):
-    """Computes k_e as a function of the porosity.
+def compute_k(_phi_f, _phi_f0):
+    """Computes k as a function of the porosity.
 
     :param _phi_f: The porosity.
     :param _phi_f0: The initial porosity.
     :return: The effective permeability.
     """
-    numerator = (1 - _phi_f0) * (_phi_f ** 2)
-    denominator = pow(_phi_f0, 3) * (1 - _phi_f)
+    numerator = (1 - _phi_f0) ** 2 * (_phi_f ** 3)
+    denominator = pow(_phi_f0, 3) * (1 - _phi_f) ** 2
     return numerator / denominator
 
 
@@ -346,9 +321,9 @@ def compute_g(_phi_f, _phi_f0, _nu):
     :param _nu: Poisson's ratio.
     :return: The effective stress.
     """
-    term1 = (1 - _phi_f0) ** 2 / (1 - _phi_f)
-    term2 = - 2 * _nu * (1 - _phi_f0)
-    term3 = - (1 - 2 * _nu) * (1 - _phi_f)
+    term1 = (1 - _phi_f0) / (1 - _phi_f)
+    term2 = - 2 * _nu
+    term3 = - (1 - 2 * _nu) * (1 - _phi_f) / (1 - _phi_f0)
     denominator = 2 * (1 + _nu) * (1 - 2 * _nu)
     return (term1 + term2 + term3) / denominator
 
@@ -361,26 +336,10 @@ def compute_dg_dphi(_phi_f, _phi_f0, _nu):
     :param _nu: Poisson's ratio.
     :return: The effective stress.
     """
-    term1 = (1 - _phi_f0) ** 2 / (1 - _phi_f) ** 2
-    term2 = 1 - 2 * _nu
+    term1 = (1 - _phi_f0) / (1 - _phi_f) ** 2
+    term2 = 1 - 2 * _nu / (1 - _phi_f0)
     denominator = 2 * (1 + _nu) * (1 - 2 * _nu)
     return (term1 + term2) / denominator
-
-
-def compute_phi_f(_sigma, _E, _phi_f0, _nu):
-    """Computes the porosity, phi_f, as a function of the Terzaghi stress
-    and Young's modulus (an inverse relation).
-
-    :param _sigma: The Terzaghi stress.
-    :param _E: The Young's modulus.
-    :param _phi_f0: The initial porosity.
-    :param _nu: The Poisson's ratio.
-    :return: The porosity in terms of the other variables.
-    """
-    b = (1 + _nu) * (1 - 2 * _nu) * _sigma / _E + 2 * _nu
-    discriminant = b ** 2 + 4 * (1 - 2 * _nu)
-    factor = (1 - _phi_f0) / (2 * (1 - 2 * _nu))
-    return 1 - factor * (discriminant ** (1 / 2) - b)
 
 
 """
@@ -481,15 +440,15 @@ def get_vs_from_E_phi(_mesh, _phi_f, _E, _a_list, _phi_f0, _nu,
     _, Q_f_arr = fenics_to_numpy(_mesh, Q_f)
     _, phi_f_arr = fenics_to_numpy(_mesh, _phi_f)
     _, E_arr = fenics_to_numpy(_mesh, _E)
-    k_e_arr = compute_k_e(phi_f_arr, _phi_f0)
+    k_arr = compute_k(phi_f_arr, _phi_f0)
     g_arr = compute_g(phi_f_arr, _phi_f0, _nu)
     dg_dphi_arr = compute_dg_dphi(phi_f_arr, _phi_f0, _nu)
     da_dt_val = (_a_list[-1] - _a_list[-2]) / _delta_t
     print(da_dt_val)
     _a = _a_list[-1]
     prod = E_arr * dg_dphi_arr * np.gradient(phi_f_arr, xi_arr) + g_arr * np.gradient(E_arr, xi_arr)
-    _v_s = (Q_f_arr / _t_v + phi_f_arr * k_e_arr * prod
-            / ((1 - _a) * (1 - phi_f_arr) * _t_phi)) * _t_vs
+    _v_s = (Q_f_arr / _t_v + k_arr * prod
+            / ((1 - _a) * _t_phi)) * _t_vs
     return _v_s
 
 
@@ -506,19 +465,18 @@ def get_vs_from_u_phi(_mesh, _phi_f, _u_s_new, _u_s_old, _phi_f0, _a_list,
             * _t_vs / _t_sc)
 
 
-def get_sigma_from_E_g(_mesh, _E, _g, _phi_f0):
+def get_sigma_from_E_g(_mesh, _E, _g):
     """Computes the Terzaghi stress as a function of the Young's modulus
     and the porosity.
 
     :param _mesh: The mesh.
     :param _E: The Young's modulus.
     :param _g: The effective stress (function of porosity).
-    :param _phi_f0: The initial porosity.
     :return: The Terzaghi stress.
     """
     _, E_arr = fenics_to_numpy(_mesh, _E)
     _, g_arr = fenics_to_numpy(_mesh, _g)
-    return E_arr * g_arr / (1 - _phi_f0)
+    return E_arr * g_arr
 
 
 # This quantity is just for plotting purposes
@@ -550,9 +508,6 @@ else:
 """
 Plot the initial curves and save all our data
 """
-# saving = [True, True, True, True]
-# short_quants = ["phi", "E", "c", "u_s"]
-# saving = [True, True, True, True, True]
 
 for quantity in quantities:
     quantity.initialise_dataframe(xi_arr)
@@ -573,10 +528,6 @@ g = (((1 - phi_f0) / (1 - phi_f.u) - 2 * nu - (1 - 2 * nu) * (1 - phi_f.u) / (1 
      / (2 * (1 + nu) * (1 - 2 * nu)))
 dg_dphi = ((1 - phi_f0) / (1 - phi_f.u) ** 2 + (1 - 2 * nu) / (1 - phi_f0)) / (2 * (1 + nu) * (1 - 2 * nu))
 
-# Controls the flux
-alpha = 1.0
-# vt = t_v * (Q_f / t_v_f + alpha * da_dt / t_sc)
-# dEg_dx = g * E.u.dx(0) + E.u * dg_dphi * phi_f.u.dx(0)
 dEg_dx = (E.u * g).dx(0)
 
 
@@ -584,13 +535,13 @@ dEg_dx = (E.u * g).dx(0)
 # Below are two different expressions that we need for the solid velocity (they
 # are equivalent definitions)
 _Q_f = Expression("val", degree=1, val=v_(0.0), domain=mesh)
-v_s = t_v_s * (v / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
+# v_s = t_v_s * (v / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
 _v_s = t_v_s / (1 - phi_f.u) * ((1 - phi_f0) * dus_dt / t_sc - (1 - xi) * da_dt * (phi_f.u - phi_f0) / t_sc)
-v_f = t_v_f * (v / t_v - (1 - phi_f.u) * k_div_phi * dEg_dx / ((1 - a) * t_phi))
+# v_f = t_v_f * (v / t_v - (1 - phi_f.u) * k_div_phi * dEg_dx / ((1 - a) * t_phi))
 _v_f = t_v_f * (_v_s / t_v_s - k_div_phi * dEg_dx / ((1 - a) * t_phi))
 _v = t_v * (_v_s / t_v_s - k * dEg_dx / ((1 - a) * t_phi))
 phi_f_v_f = (v - (1 - phi_f.u) * _v_s)
-__v = (phi_f.u * _v_f + (1 - phi_f.u) * _v_s)
+# __v = (phi_f.u * _v_f + (1 - phi_f.u) * _v_s)
 # _v = Q_f
 
 """
@@ -615,7 +566,6 @@ Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
 # Weak form for the E equation
 Fun_E = (dE_dt / t_sc + c.u * (E.u - E_min) / t_E
          + (_v_s / t_v_s - (1 - xi) * da_dt / t_sc) / (1 - a) * E.u.dx(0)) * E.v * dx
-# Fun_E = dE_dt * E.v / t_sc * dx + c.u * (E.u - E_min) * E.v / t_E * dx
 
 # Weak form for the c equation
 # Fun_c = ((phi_f.u * dc_dt + dphi_dt * c.u -
@@ -666,7 +616,9 @@ t_list = [float(t(0.0))]
 # Lists of averages to record (Q_f, E_avg, c_avg, phi_f_avg)
 Q_f_list = [v_(0.0)]
 avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get_average()]}
-c_right_list = [float(c_plus(0.0))]
+# c_right_list = [float(c_plus(0.0))]
+phi_r_list = [get_phi_bc(mesh, sigma_l_num - Delta_p_num, E.f, phi_f0_num, nu_num,
+                         _left=False)]
 # integral_v_list = [float(integral_v(0.0))]
 t_fl = t_list[0]
 for n in range(N_time):
@@ -678,19 +630,15 @@ for n in range(N_time):
     solver.parameters["newton_solver"]["relative_tolerance"] = 1e-8
     print("Time:", np.round(t_fl, 3))
 
-    # Solve (iterate until BC for E is consistent)
+    # Solve
     solver.solve()
     phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v_, a_f = w.split(deepcopy=True)
     _, phi_f_arr = fenics_to_numpy(mesh, phi_f.f)
     a_list.append(a_f(0.0))
 
-    # if n == 0:
-    #     # We need an idea of what Q_f was at t = 0. We approximate this by whatever
-    #     # Q_f is at t = delta_t.
-    #     Q_f_list.append(float(fenics_to_numpy(mesh, v.f)[1][0]))
     _Q_f.val = v_(0.0)
     Q_f_list.append(float(_Q_f(0.0)))
-    c_right_list.append(float(fenics_to_numpy(mesh, c.f)[1][-1]))
+    # c_right_list.append(float(fenics_to_numpy(mesh, c.f)[1][-1]))
 
     # Update some variables
     t.tau += delta_tau
@@ -703,7 +651,6 @@ for n in range(N_time):
     avgs_dict["E"].append(E.get_average())
     avgs_dict["c"].append(c.get_average())
 
-    # sigma.f = get_sigma_from_E_g(mesh, E.f, compute_g(phi_f_arr, phi_f0_num, nu_num), phi_f0_num)
     # v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_list, phi_f0_num, nu_num,
     #                            t_v_num, t_v_s_num, t_phi_num, delta_t_fl)
     v_s_.f = get_vs_from_u_phi(mesh, phi_f.f, u_s_new, u_s.f, phi_f0_num, a_list,
@@ -719,10 +666,6 @@ for n in range(N_time):
     if phi_f.f_fixed[-1] < 0.0:
         phi_f.f_fixed[-1] = 0.0
     phi_r = phi_f.f_fixed[-1]
-    # phi_r_list.append(phi_r)
-    if (n + 1) % plotting_freq == 0:
-        Quantity.plot_quantities(quantities, norm, t_fl, saving,
-                                 fixed_domain=fixed_domain)
     u_s.f = u_s_new
 
     phi_l = fenics_to_numpy(mesh, phi_f.f)[1][0]
@@ -737,9 +680,14 @@ for n in range(N_time):
     bc_right_phi = DirichletBC(V.sub(0), phi_r, boundary_markers, 2)
     bcs[1] = bc_right_phi
 
-    if phi_r == 0.0:
+    if phi_r < 0.0:
         print("Porosity on the right has reached zero, exiting...")
+        phi_r_list.append(0.0)
         break
+    phi_r_list.append(phi_r)
+    if (n + 1) % plotting_freq == 0:
+        Quantity.plot_quantities(quantities, norm, t_fl, saving,
+                                 fixed_domain=fixed_domain)
 
 # Save all relevant quantities
 if any(saving) and not os.path.isdir(data_path):
@@ -796,6 +744,8 @@ ax_all.plot(times, E_avg_arr, lw=2,
 ax_all.plot(times, c_avg_arr, lw=2,
                 color="red", label="$\\overline{c}$")
 ax_all.set_xlabel("$t$")
+if log_time:
+    ax_all.set_xscale("log")
 ax_all.legend()
 plt.subplots_adjust(hspace=0.3, wspace=0.4)
 fig_avgs.savefig(f"{plot_path}/averages.png", bbox_inches="tight")
@@ -803,5 +753,6 @@ fig_avgs.savefig(f"{plot_path}/averages.png", bbox_inches="tight")
 if saving[0]:
     # Save various time-dependent variables to a dataframe
     response_df = pd.DataFrame({"Time": times, "a": np.array(a_list), "v": np.array(Q_f_list),
-                              "phi_f_bar": phi_f_avg_arr, "E_bar": E_avg_arr, "c_bar": c_avg_arr})
+                                "phi_f_bar": phi_f_avg_arr, "E_bar": E_avg_arr, "c_bar": c_avg_arr,
+                                "phi_r": np.array(phi_r_list)})
     response_df.to_csv(f"{data_path}/_responses.csv")
