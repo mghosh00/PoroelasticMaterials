@@ -61,8 +61,8 @@ plt.rcParams['text.usetex'] = True
 Reading in our parameters
 """
 parent = "phys"
-trial = "enzymatic"
-sub_trial = "beta_E_1_0"
+trial = "porous_polymer"
+sub_trial = "Delta_p_0_25_phif0_0_4"
 param_file = open(f"resources/{parent}/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -198,7 +198,7 @@ t_final = float(Expression(t_tau, degree=1, tau=N_time * delta_tau,
 
 # For calculating the initial value of v (from asymptotic early-time analysis)
 D_phi = (1 - nu_num) / (1 + nu_num) / (1 - 2 * nu_num) * t_sc_num / t_v_num
-v_0 = 1 / np.sqrt(np.pi * D_phi * float(t(0.0))) if early_time_soln else 10000
+v_0 = 1 / np.sqrt(np.pi * D_phi * float(t(0.0))) if early_time_soln else params["ics"]["v"]
 
 """
 Function to change spatial coordinates and get to the correct mesh.
@@ -277,8 +277,17 @@ short_quants = ["phi", "E", "p_f", "sigma", "u_s", "v_s", "c"]
 # short_quants = ["phi", "E", "c", "sigma", "u_s", "p_f", "v_s"]
 data_path = f"resources/{parent}/{trial}/{sub_trial}/data"
 
+# c_ic = 'c_minus + (c_plus - c_minus) * x[0]'
+c_ic = '0.0'
+# phi_ic = ('phi_f0 - (1 - phi_f0) * gamma / D_phi * '
+#           '(1 - erf((1 - x[0]) / (2 * sqrt(D_phi * t1))))')
+# D_phi = (1 - nu_num) / (1 - 2 * nu_num) / (1 + nu_num)
+# t1 = float(t_next(0.0)) * t_E_num / t_phi_num
+# v0 = 1 / np.sqrt(np.pi * D_phi * t1)
+# a0 = 2 * t_phi_num / t_v_num * np.sqrt(t1 / (np.pi * D_phi))
+# print(t1, v0, a0)
 # Define the initial conditions
-w_0 = Expression(('phi_f0', params["ics"]["E"], 'c_minus + (c_plus - c_minus) * x[0]',
+w_0 = Expression(('phi_f0', params["ics"]["E"], c_ic,
                   '0.0', params["ics"]["u_s"], '0.0', 'v_0', 'a_0'),
                  degree=1, phi_f0=phi_f0, v_0=v_0, a_0=a_list[0],
                  E_min=E_min, gamma=t_phi_num/t_v_num, nu=nu,
@@ -500,8 +509,9 @@ plt.subplots_adjust(wspace=1.0 * (ncols - 1))
 axs_list = [axs[i][j] for j in range(ncols) for i in range(nrows)]
 # axs_list = [axs[i] for i in range(nrows)]
 Quantity.set_axs(quantities, axs_list[:-1])
+t_colorbar_init = 1e-12 if log_time else 0.0
 if log_time:
-    norm = mpl.colors.LogNorm(vmin=float(t(0.0)), vmax=t_final)
+    norm = mpl.colors.LogNorm(vmin=t_colorbar_init, vmax=t_final)
 else:
     norm = mpl.colors.Normalize(vmin=0.0, vmax=t_final)
 
@@ -512,8 +522,9 @@ Plot the initial curves and save all our data
 for quantity in quantities:
     quantity.initialise_dataframe(xi_arr)
 
-Quantity.plot_quantities(quantities, norm, 0.0, saving)
+Quantity.plot_quantities(quantities, norm, t_colorbar_init, saving)
 
+print(t(0.0), t_next(0.0))
 # define the time derivatives
 dphi_dt = (phi_f.u - phi_f.u_old) / delta_t
 dE_dt = (E.u - E.u_old) / delta_t
@@ -528,7 +539,7 @@ g = (((1 - phi_f0) / (1 - phi_f.u) - 2 * nu - (1 - 2 * nu) * (1 - phi_f.u) / (1 
      / (2 * (1 + nu) * (1 - 2 * nu)))
 dg_dphi = ((1 - phi_f0) / (1 - phi_f.u) ** 2 + (1 - 2 * nu) / (1 - phi_f0)) / (2 * (1 + nu) * (1 - 2 * nu))
 
-dEg_dx = (E.u * g).dx(0)
+dEg_dxi = (E.u * g).dx(0)
 
 
 # Find intermediate expressions for the solid and fluid velocities
@@ -537,9 +548,9 @@ dEg_dx = (E.u * g).dx(0)
 _Q_f = Expression("val", degree=1, val=v_(0.0), domain=mesh)
 # v_s = t_v_s * (v / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
 _v_s = t_v_s / (1 - phi_f.u) * ((1 - phi_f0) * dus_dt / t_sc - (1 - xi) * da_dt * (phi_f.u - phi_f0) / t_sc)
-# v_f = t_v_f * (v / t_v - (1 - phi_f.u) * k_div_phi * dEg_dx / ((1 - a) * t_phi))
-_v_f = t_v_f * (_v_s / t_v_s - k_div_phi * dEg_dx / ((1 - a) * t_phi))
-_v = t_v * (_v_s / t_v_s - k * dEg_dx / ((1 - a) * t_phi))
+# v_f = t_v_f * (v / t_v - (1 - phi_f.u) * k_div_phi * dEg_dxi / ((1 - a) * t_phi))
+# _v_f = t_v_f * (_v_s / t_v_s - k_div_phi * dEg_dxi / ((1 - a) * t_phi))
+_v = t_v * (_v_s / t_v_s - k * dEg_dxi / ((1 - a) * t_phi))
 phi_f_v_f = (v - (1 - phi_f.u) * _v_s)
 # __v = (phi_f.u * _v_f + (1 - phi_f.u) * _v_s)
 # _v = Q_f
@@ -550,7 +561,7 @@ Define the weak form
 
 # Weak form for the phi equation
 Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
-           ((1 / (1 - a))**2 * (1 - phi_f.u) * k * dEg_dx / t_phi -
+           ((1 / (1 - a))**2 * (1 - phi_f.u) * k * dEg_dxi / t_phi -
             (1 / (1 - a)) * phi_f.u * (v / t_v - (1 - xi) * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
            (1 / (1 - a)) * (v / t_v) * phi_f.v * ds(2) -
            (1 / (1 - a)) * (v / t_v - da_dt / t_sc) * phi_f.v * ds(1))
@@ -575,13 +586,20 @@ Fun_E = (dE_dt / t_sc + c.u * (E.u - E_min) / t_E
 #           (_v_f / t_v_f - (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0) * dx +
 #          c.u * phi_f.u * _v_f / (1 - a) / t_v_f * c.v * ds(2))
 # Weak form for the c equation with new boundary conditions
+# Fun_c = (((phi_f.u * dc_dt + dphi_dt * c.u -
+#           da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v +
+#          1/ (1 - a) *
+#          (phi_f.u * c.u.dx(0) / ((1 - a) * t_c) -
+#           (phi_f_v_f / t_v_f - phi_f.u * (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0)) * dx +
+#          c.u * v / (1 - a) / t_v_f * c.v * ds(2) +
+#          (c.u * da_dt / t_sc - v * c_minus / t_v) / (1 - a) * c.v * ds(1))
 Fun_c = (((phi_f.u * dc_dt + dphi_dt * c.u -
-          da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v +
-         1/ (1 - a) *
-         (phi_f.u * c.u.dx(0) / ((1 - a) * t_c) -
-          (phi_f_v_f / t_v_f - phi_f.u * (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0)) * dx +
+           da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v +
+          1/ (1 - a) *
+          (phi_f.u * c.u.dx(0) / ((1 - a) * t_c) -
+           (phi_f_v_f / t_v_f - phi_f.u * (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0)) * dx +
          c.u * v / (1 - a) / t_v_f * c.v * ds(2) +
-         (c.u * da_dt / t_sc - v * c_minus / t_v) / (1 - a) * c.v * ds(1))
+         (da_dt / t_sc - v / t_v) / (1 - a) * c.v * ds(1))
 
 # Weak form for the Terzaghi stress (sort of Lagrange multiplier)
 Fun_sigma = (sigma.u - (E.u * g)) * sigma.v * dx
@@ -620,14 +638,15 @@ avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get
 phi_r_list = [get_phi_bc(mesh, sigma_l_num - Delta_p_num, E.f, phi_f0_num, nu_num,
                          _left=False)]
 # integral_v_list = [float(integral_v(0.0))]
-t_fl = t_list[0]
+# t.tau += delta_tau
+# t_next.tau += delta_tau
 for n in range(N_time):
     t_fl = float(t_next(0.0))
     problem = NonlinearVariationalProblem(Fun, w, bcs, jacobian)
     solver = NonlinearVariationalSolver(problem)
     solver.parameters["nonlinear_solver"] = "newton"
-    solver.parameters["newton_solver"]["absolute_tolerance"] = 1e-9
-    solver.parameters["newton_solver"]["relative_tolerance"] = 1e-8
+    solver.parameters["newton_solver"]["absolute_tolerance"] = 1e-10
+    solver.parameters["newton_solver"]["relative_tolerance"] = 1e-9
     print("Time:", np.round(t_fl, 3))
 
     # Solve
@@ -639,7 +658,6 @@ for n in range(N_time):
     _Q_f.val = v_(0.0)
     Q_f_list.append(float(_Q_f(0.0)))
     # c_right_list.append(float(fenics_to_numpy(mesh, c.f)[1][-1]))
-
     # Update some variables
     t.tau += delta_tau
     t_next.tau += delta_tau
@@ -713,7 +731,7 @@ fig.savefig(f"{plot_path}/_time_traces_{plot_coord}.png", bbox_inches="tight")
 fig_Q_a, axs_Q_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20 / 3), sharex=True)
 ax_Q, ax_a = axs_Q_a
 times = np.array(t_list)
-ax_Q.plot(times, np.array(Q_f_list), lw=2,
+ax_Q.plot(times[1:], np.array(Q_f_list[1:]), lw=2,
           color='forestgreen')
 ax_Q.set_ylabel("$v(t)$")
 ax_Q.set_xscale("log")
@@ -756,3 +774,13 @@ if saving[0]:
                                 "phi_f_bar": phi_f_avg_arr, "E_bar": E_avg_arr, "c_bar": c_avg_arr,
                                 "phi_r": np.array(phi_r_list)})
     response_df.to_csv(f"{data_path}/_responses.csv")
+
+"""
+Saving t_crit values
+"""
+t_crit = t_fl
+t_crit_df = pd.read_csv(f"{data_path}/t_crit.csv")
+sim_num = params["sim num"]
+t_crit_df[f"Sim {sim_num}"] = {"phi_f0": phi_f0_num, "E_min": nums(E_min),
+                               "gamma": t_v_num / t_phi_num, "t_crit": t_fl}
+t_crit_df.to_csv(f"{data_path}/t_crit.csv")

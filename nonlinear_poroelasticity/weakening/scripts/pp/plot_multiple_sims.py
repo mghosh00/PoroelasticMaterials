@@ -39,7 +39,7 @@ def get_input_info(files_dir: str, json_name: str = "params"):
     return data_path, plot_path, params
 
 
-meta_path = "paper_1/example_III"
+meta_path = "paper_1/example_I"
 _, _, meta_params = get_input_info(meta_path, "meta_info")
 trial_params = meta_params["trial_params"]
 quant_params = meta_params["quant_params"]
@@ -130,8 +130,9 @@ if ss_index != -1:
     axs = [[axs[j]] for j in range(num_quants)]
 plt.subplots_adjust(wspace=0.3)
 t_start, t_end = float(times[0]), float(times[-1])
+t_colorbar_init = 1e-12 if log_time else 0.0
 if log_time:
-    norm = mpl.colors.LogNorm(vmin=t_start, vmax=t_end)
+    norm = mpl.colors.LogNorm(vmin=float(times[1]), vmax=t_end)
 else:
     norm = mpl.colors.Normalize(vmin=0.0, vmax=t_end)
 
@@ -143,6 +144,8 @@ for i in range(num_trace_trials):
         t = float(times[int(m * len(times) / num_times)])
         for j, q in enumerate(short_quants):
             quantities[j].f = data_dicts[i][q][:, m]
+        if t == 0 and log_time:
+            t = times[1]
         Quantity.plot_quantities(quantities, norm, t, fixed_domain=fixed_domain)
     print(quantities[0].f[-1])
     ylabel = "name" if i == 0 else None
@@ -199,8 +202,7 @@ for j in range(num_vars):
     for i in range(num_trials):
         times, line_style, label = times_list[i], line_styles[i], labels[i]
         f_arr = data_dicts[i][f]
-        if f == "v":
-            # ax.set_xlim(times[0], times[-1])
+        if log_time or f == "v":
             times, f_arr = times[1:], f_arr[1:]
         ax.plot(times, f_arr, color=colour, linestyle=line_style, label=label)
         ax.set_xlabel(tlabel)
@@ -208,8 +210,10 @@ for j in range(num_vars):
         if log_time:
             ax.set_xscale("log")
         ax.set_yscale(yscale)
-    ax.legend()
-fig_resp.savefig(f"{output_plot_path}/_responses.png", bbox_inches="tight")
+    ax.legend(fontsize='15')
+    # ax.plot(times, 2 / np.sqrt(times))
+    # ax.plot(times, 0.1 / times)
+fig_resp.savefig(f"{output_plot_path}/responses.png", bbox_inches="tight")
 
 """
 Plot of averages
@@ -223,18 +227,20 @@ fig_avgs, ax_all = plt.subplots(figsize=figsize_avgs)
 phi_f_avg_arr, E_avg_arr, c_avg_arr = (data_dicts[ss_index][avg_names[0]],
                                        data_dicts[ss_index][avg_names[1]],
                                        data_dicts[ss_index][avg_names[2]])
+times = times_list[ss_index]
+i = 1 if log_time else 0
 # Have a twin axis
 ax_phi = ax_all.twinx()
 # Plot E_avg, c_avg and phi_r over time on the same axis
-ax_phi.plot(times, phi_f_avg_arr, lw=2,
+ax_phi.plot(times[i:], phi_f_avg_arr[i:], lw=2,
             color=colours_avg[0], label=latex_labels_avg[0])
-ax_all.plot(times, E_avg_arr, lw=2,
+ax_all.plot(times[i:], E_avg_arr[i:], lw=2,
             color=colours_avg[1], label=latex_labels_avg[1])
-ax_all.plot(times, c_avg_arr, lw=2,
+ax_all.plot(times[i:], c_avg_arr[i:], lw=2,
             color=colours_avg[2], label=latex_labels_avg[2])
 ax_all.set_xlabel(tlabel)
 if log_time:
     ax_all.set_xscale("log")
 ax_all.legend(loc="center left")
 ax_phi.legend(loc="center right")
-fig_avgs.savefig(f"{output_plot_path}/_averages.png", bbox_inches="tight")
+fig_avgs.savefig(f"{output_plot_path}/averages.png", bbox_inches="tight")

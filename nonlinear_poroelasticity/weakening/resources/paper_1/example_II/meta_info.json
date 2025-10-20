@@ -2,16 +2,16 @@
   "trial_params": {
     "num_trials": 3,
     "parent": "phys",
-    "trial": "porous_polymer",
+    "trial": "cardiovascular_stent",
     "sub_trials": [
-      "Delta_p_0_1",
-      "Delta_p_0_25",
-      "Delta_p_0_5"
+      "phi_f0_0_5",
+      "phi_f0_0_7",
+      "phi_f0_0_9"
     ],
     "labels": [
-      "$\\Delta p / E_0 = 0.1$",
-      "$\\Delta p / E_0 = 0.25$",
-      "$\\Delta p / E_0 = 0.5$"
+      "$\\phi_{f,0} = 0.5$",
+      "$\\phi_{f,0} = 0.7$",
+      "$\\phi_{f,0} = 0.9$"
     ],
     "linestyles": [
       "dotted",
@@ -20,8 +20,8 @@
     ]
   },
   "quant_params": {
+    "selected_subtrial": 0,
     "num_quants": 3,
-    "selected_subtrial": 1,
     "short_quants": [
       "phi",
       "E",
@@ -45,23 +45,23 @@
   "response_params": {
     "var_names": [
       "a",
-      "v",
-      "phi_r"
+      "phi_r",
+      "v"
     ],
     "latex_var_names": [
       "$a/L$",
-      "$v/v^{*}$",
-      "$\\phi_{r}$"
+      "$\\phi_{f,r}$",
+      "$v/v^{*}$"
     ],
     "colours": [
       "darkgoldenrod",
-      "forestgreen",
-      "mediumblue"
+      "mediumblue",
+      "forestgreen"
     ],
     "yscales": [
       "linear",
-      "log",
-      "linear"
+      "linear",
+      "log"
     ],
     "nrows": 3,
     "ncols": 1,

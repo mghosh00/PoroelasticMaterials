@@ -2,16 +2,16 @@
   "trial_params": {
     "num_trials": 3,
     "parent": "phys",
-    "trial": "enzymatic",
+    "trial": "porous_polymer",
     "sub_trials": [
-      "beta_E_1_0",
-      "beta_E_0_1",
-      "beta_E_0_01"
+      "Delta_p_0_1",
+      "Delta_p_0_25",
+      "Delta_p_0_5"
     ],
     "labels": [
-      "$t_{E} = 2.1\\times 10^{3}\\mathrm{s}$",
-      "$t_{E} = 2.1\\times 10^{4}\\mathrm{s}$",
-      "$t_{E} = 2.1\\times 10^{5}\\mathrm{s}$"
+      "$\\gamma = 0.1$",
+      "$\\gamma = 0.25$",
+      "$\\gamma = 0.5$"
     ],
     "linestyles": [
       "dotted",
@@ -21,6 +21,7 @@
   },
   "quant_params": {
     "num_quants": 3,
+    "selected_subtrial": 1,
     "short_quants": [
       "phi",
       "E",
@@ -32,41 +33,45 @@
       "$c / c^{*}$"
     ],
     "colour_maps": [
-      "Blues",
-      "Purples",
-      "Reds"
+      "inferno_r",
+      "inferno_r",
+      "inferno_r"
+    ],
+    "cmap_bounds": [
+      0.0,
+      1.0
     ]
   },
   "response_params": {
     "var_names": [
       "a",
-      "phi_r",
-      "v"
+      "v",
+      "phi_r"
     ],
     "latex_var_names": [
       "$a/L$",
-      "$\\phi_{f,r}$",
-      "$v/v^{*}$"
+      "$v/v^{*}$",
+      "$\\phi_{f,r}$"
     ],
     "colours": [
       "darkgoldenrod",
-      "mediumblue",
-      "forestgreen"
+      "forestgreen",
+      "mediumblue"
     ],
     "yscales": [
       "linear",
-      "linear",
-      "log"
+      "log",
+      "linear"
     ],
-    "nrows": 1,
-    "ncols": 3,
+    "nrows": 3,
+    "ncols": 1,
     "figsize": [
-      14,
-      3.333333333
+      6,
+      10
     ]
   },
   "fixed_domain": "False",
-  "log_time": "False",
+  "log_time": "True",
   "tlabel": "$t / t_E$",
   "avg_params": {
     "names": [
@@ -75,7 +80,7 @@
       "c_bar"
     ],
     "figsize": [
-      12,
+      10,
       3.33333
     ],
     "colours": [

@@ -39,23 +39,29 @@ plt.rcParams['text.usetex'] = True
 """
 Reading in our parameters
 """
-trial = "nondim_realistic_params"
-sub_trial = "below_gamma_crit"
-param_file = open(f"resources/{trial}/{sub_trial}/params.json")
+parent = "phys"
+trial = "porous_polymer"
+sub_trial = "Delta_p_0_1"
+path = f"resources/{parent}/{trial}/{sub_trial}"
+param_file = open(f"{path}/params.json")
 params = json.load(param_file)
 
 # Whether we produce a .gif or set of traces
-gif = True
+gif = False
+# Whether we create panels
+panels = True
 # Whether we plot on log-log axes or not
 log = False
 log_text = "_log" if log else ""
 
 # Whether we'll plot on a fixed domain or not
-fixed_domain = True
+fixed_domain = False
 plot_coord = "x" if fixed_domain else "xi"
 plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
 plot_coord_tex = f"log$(1 - ${plot_coord_tex})" if log else plot_coord_tex
 
+# Whether we read the analytic solutions for a and v from a dataframe or not
+read_a_v = False
 
 """
 Computational parameters
@@ -93,15 +99,28 @@ k_0 = params["scales"]["k"]
 c_star = params["scales"]["c"]
 E_star = params["scales"]["E"]
 v_star = params["scales"]["v"]
-Q_f = params["Q_f"]["Q_f_final"]
+if "Q_f" in params:
+    Q_f = params["Q_f"]["Q_f_final"]
+    fluid_flux = True
+    t_v = L / v_star
+else:
+    Delta_p = params["bcs"]["Delta p"]
+    fluid_flux = False
+    t_v = (mu * L ** 2) / (k_0 * params["bcs"]["Delta p"] * E_star)
+    params["scales"]["v"] = L / t_v
 
 # Timescales (only parameters other than nu and phi_f0 in the equations)
 t_phi = (mu * L ** 2) / (k_0 * E_star)
-t_v = L / v_star
 t_E = 1 / (beta_E * c_star)
+t_sc = params["scales"]["t"]
+
+epsilon_E = t_phi / t_E
 
 # The collective "diffusion coefficient" for the early equation
 D_phi_early = (1 * (1 - nu) * t_v) / (t_phi * (1 + nu) * (1 - 2 * nu))
+
+# The diffusion coefficient for the system with applied pressure drop
+D_phi_early_pd = (1 - nu) / (1 + nu) / (1 - 2 * nu)
 
 # The collective "diffusion coefficient" for the late equation
 D_phi_late = ((1 * (1 - phi_f0) * ((1 - phi_f0) ** 2 + 1 - 2 * nu) * t_v) /
@@ -113,23 +132,25 @@ Read in quantity .csv files.
 short_quants = ["phi"]
 latex_quants = ["log$(\\phi_{f})$" if log else "$\\phi_{f}$"]
 colours = ["blue"]
-data_path = f"resources/{trial}/{sub_trial}/data"
-plot_path = f"resources/{trial}/{sub_trial}/plots"
+data_path = f"{path}/data"
+plot_path = f"{path}/plots"
 file_names = [f"{data_path}/_{q}_{plot_coord}.csv" for q in short_quants]
 data_dict = {}
 for i, name in enumerate(short_quants):
-    data_arr = pd.read_csv(file_names[i]).to_numpy()
-    coord_arr = data_arr[:, 1]
-    quant_arr_nan = data_arr[:, 2:]
+    data_arr = pd.read_csv(file_names[i], header=None).to_numpy()
+    times = np.array(data_arr[0, 2:], dtype=float)
+    times[0] = 0.0
+    coord_arr = np.array(data_arr[1:, 1], dtype=float)
+    quant_arr_nan = np.array(data_arr[1:, 2:], dtype=float)
     data_dict[name] = quant_arr_nan
 
-t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
-t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
-times = [float(t_expr(0.0))]
-for n in range(N_time):
-    t_expr.tau += delta_tau
-    times.append(float(t_expr(0.0)))
-times = np.array(times)
+# t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
+# t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
+# times = [0.0]
+# for n in range(N_time):
+#     times.append(float(t_expr(0.0)))
+#     t_expr.tau += delta_tau
+# times = np.array(times)
 coord_arr[0] = 0
 coord_arr[-1] = 1
 
@@ -157,6 +178,25 @@ def phi_f_bl_early(_x: np.array, _t: float, _phi_f0: float, _Q_f: float,
     term2 = 2 * np.sqrt(_t / (np.pi * _D_phi_early)) * np.exp(- (1 - _x) ** 2 / (4 * _D_phi_early * _t))
     term3 = - (1 - _x) / _D_phi_early * (1 - ss.erf((1 - _x) / (2 * np.sqrt(_D_phi_early * _t))))
     return _phi_f0 - _Q_f * (1 - _phi_f0) * (term2 + term3)
+
+
+def phi_f_bl_early_pressure_drop(_x: np.array, _t: float, _phi_f0: float, _nu: float,
+                                 _Delta_p: float, _D_phi_early: float, _epsilon_E: float):
+    """Returns the porosity in the early boundary layer when there is an applied
+    pressure drop.
+
+    :param _x: The spatial array.
+    :param _t: The timepoint.
+    :param _phi_f0: The initial porosity.
+    :param _nu: The Poisson's ratio.
+    :param _Delta_p: The pressure drop.
+    :param _D_phi_early: The diffusion coefficient.
+    :param _epsilon_E: The ratio of the poroelastic and weakening timescales.
+    :return: The porosity in this boundary layer.
+    """
+    multiplier = (1 - _phi_f0) * (1 + _nu) * (1 - 2 * _nu) * _Delta_p / (1 - _nu)
+    inner = 1 - ss.erf((1 - _x) / (2 * np.sqrt(_D_phi_early * _t / _epsilon_E)))
+    return _phi_f0 - multiplier * inner
 
 
 def phi_f_bl_late(_x: np.array, _Q_f: float, _D_phi_late: float):
@@ -212,7 +252,7 @@ def phi_f_lin_elastic(_x_arr: np.array, _t: float, _Q_f: float,
 
 
 def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
-                            _E_min: float, _params: dict):
+                            _E_min: float, _params: dict, _fixed_domain: bool):
     """Calculates the quasi-steady expression for phi_f for the case in which the
     weakening timescale is much longer than the other timescales, and we are in this
     regime. Provided c has converged to its steady state of a constant profile, the
@@ -224,18 +264,23 @@ def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
     :param _t_E: The weakening timescale.
     :param _E_min: The minimal Young's modulus value.
     :param _params: All other parameters from the params dict.
-    :return: The quasi-steady expression for the porosity.
+    :return: The quasi-steady expressions for the porosity and phase-averaged velocity.
     """
     _t_sc = _params["scales"]["t"]
-    E_0 = _E_min + (1 - _E_min) * np.exp(-_t * _t_sc / _t_E)
+    E_0 = _E_min + (1 - _E_min) * np.exp(-_t)
     # The next line is to ensure that the time-varying function goes into the
     # steady state calculation
     _params["phys"]["E_min"] = E_0
     quasi_steady_state = SteadyState(_params, _xi_arr)
     _phi_f_qss, _a_qss, _B_qss = quasi_steady_state.solve_analytic()
+    _v_qss = quasi_steady_state.Q_f
     # _phi_f_qss is in xi coordinates, but we want to convert it to x coordinates
-    _x_arr = _a_qss + (1 - _a_qss) * _xi_arr
-    return _x_arr, _phi_f_qss
+    if fixed_domain:
+        _x_arr = _a_qss + (1 - _a_qss) * _xi_arr
+        _coord_arr = _x_arr
+    else:
+        _coord_arr = _xi_arr
+    return _coord_arr, _phi_f_qss, _a_qss, _v_qss
 
 
 """
@@ -248,7 +293,7 @@ if not os.path.exists(f"{plot_path}/frames"):
 
 
 images = []
-tau_period = 0.001
+tau_period = 0.0013
 
 # Set up the colorbars and label the plots
 mins = np.array([np.nanmin(data_dict[name]) for name in short_quants])
@@ -276,21 +321,34 @@ if not gif:
     phi_f.mesh_fixed = np.log(1 - coord_arr) if log else coord_arr
     phi_f.set_ax(axs_list[0])
 
-early_label = "Early boundary layer"
+early_label = "Early time"
 lin_label = "Linear elasticity (analytic)"
 late_label = "$\\tilde{\\Phi}_{f,0}$"
 late_extra_label = "$\\tilde{\\Phi}_{f,0} + \\tilde{\\epsilon}\\tilde{\\Phi}_{f,1}$"
-quasi_steady_label = "Quasi-steady (analytic)"
-fenics_label = "Nonlinear elasticity (numeric)"
+quasi_steady_label = "Quasi-steady"
+fenics_label = "Numerical"
 n_end = int(N_time * delta_tau / tau_period) + 1
 # n_end = 50
 
+if panels:
+    nrows, ncols = 4, 3
+    num_panels = nrows * ncols
+    panels_n_list = list(np.linspace(0, n_end - 1, num=num_panels).astype(int))
+    print(panels_n_list)
+    fig, axs = plt.subplots(nrows, ncols, figsize=(12, 13), sharex="col", sharey="row")
+    plt.subplots_adjust(wspace=0.2, hspace=0.4)
+    axs_list = [axs[i][j] for i in range(nrows) for j in range(ncols)]
+
 t_1, t_2 = 0.04, 1
 for n in range(n_end):
-    m = n * int(tau_period / delta_tau) if n != n_end - 1 else -1
-    t = float(times[m])
+    if panels and n in panels_n_list:
+        ax = axs_list[panels_n_list.index(n)]
+    m = n * int(round(tau_period / delta_tau, 1))
+    t = float(times[n])
+    t_str = np.format_float_positional(float(times[n]), precision=3, unique=False,
+                                       fractional=False, trim='k')
     phase = 1 if t < t_1 else 2 if t < t_2 else 3
-    N_x_current = np.count_nonzero(~np.isnan(data_dict["phi"][:, m]))
+    N_x_current = np.count_nonzero(~np.isnan(data_dict["phi"][:, n]))
     # print(N_x_current)
     i_min, i_max = (N_x + 1 - N_x_current, N_x + 1)
     coord_arr_n = coord_arr[i_min:i_max]
@@ -302,15 +360,19 @@ for n in range(n_end):
     late_bl_quants = []
     late_bl_extra_quants = []
     quasi_steady_quants = []
-    phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, Q_f, D_phi_early)
-    phi_f_lin = phi_f_lin_elastic(coord_arr_n, t, Q_f, phi_f0, D_phi_early)
-    phi_f_late = phi_f_bl_late(coord_arr_n, Q_f, D_phi_late)
-    phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, Q_f, D_phi_late, phi_f0, nu)
-    x_arr_qss, phi_f_quasi_steady = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params)
+    if fluid_flux:
+        phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, Q_f, D_phi_early)
+    else:
+        phi_f_early = phi_f_bl_early_pressure_drop(coord_arr_n, t, phi_f0, nu,
+                                                   Delta_p, D_phi_early_pd, epsilon_E)
+    # phi_f_lin = phi_f_lin_elastic(coord_arr_n, t, Q_f, phi_f0, D_phi_early)
+    # phi_f_late = phi_f_bl_late(coord_arr_n, Q_f, D_phi_late)
+    # phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, Q_f, D_phi_late, phi_f0, nu)
+    x_arr_qss, phi_f_quasi_steady, _, _ = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, fixed_domain)
     early_bl_quants.append(phi_f_early)
-    lin_quants.append(phi_f_lin)
-    late_bl_quants.append(phi_f_late)
-    late_bl_extra_quants.append(phi_f_late_extra)
+    # lin_quants.append(phi_f_lin)
+    # late_bl_quants.append(phi_f_late)
+    # late_bl_extra_quants.append(phi_f_late_extra)
     quasi_steady_quants.append(phi_f_quasi_steady)
 
     """
@@ -320,36 +382,39 @@ for n in range(n_end):
         fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8 * ncols, (10 * nrows)/3), sharex=True)
         plt.subplots_adjust(wspace=1.0 * (ncols - 1))
         axs_list = [axs]
-
-    print("Time:", round(t, 3))
+    print("Time:", t_str)
 
     # Set up the correct arrays for the timepoint
     for i, name in enumerate(short_quants):
-        ax = axs_list[i]
+        if gif:
+            ax = axs_list[i]
         coord_arr_n = np.log(1 - coord_arr_n) if log else coord_arr_n
         early_bl_n = np.log(early_bl_quants[i]) if log else early_bl_quants[i]
-        lin_n = np.log(lin_quants[i]) if log else lin_quants[i]
+        # lin_n = np.log(lin_quants[i]) if log else lin_quants[i]
         # late_bl_n = np.log(late_bl_quants[i]) if log else late_bl_quants[i]
         # late_bl_extra_n = np.log(late_bl_extra_quants[i] if log else late_bl_extra_quants[i])
         qss_n = np.log(quasi_steady_quants[i]) if log else quasi_steady_quants[i]
-        fenics_arr_n = np.log(data_dict[name][:, m]) if log else data_dict[name][:, m]
-        if gif:
+        fenics_arr_n = np.log(data_dict[name][:, n]) if log else data_dict[name][:, n]
+        if gif or panels:
+            if panels and n not in panels_n_list:
+                continue
             # line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--g", label=early_label)
             # line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r", label=late_label)
-            line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color=colours[i], label=fenics_label)
-            line_lin = ax.plot(coord_arr_n, lin_n, color="darkgoldenrod", linestyle='--', label=lin_label)
-            line_qss = ax.plot(x_arr_qss, qss_n, color="firebrick", linestyle="--", label=quasi_steady_label)
+            line_fenics = ax.plot(coord_arr_n, fenics_arr_n[i_min:i_max], color="black", label=fenics_label)
+            line_early = ax.plot(coord_arr_n, early_bl_n, color="darkgoldenrod", linestyle='--', label=early_label)
+            line_qss = ax.plot(x_arr_qss, qss_n, color="deepskyblue", linestyle="--", label=quasi_steady_label)
             ax.set_xlabel(plot_coord_tex)
             ax.set_ylabel(latex_quants[i])
-            ax.set_xlim(xmin, xmax)
-            ax.set_ylim(mins[i], maxes[i])
-            ax.set_title(f"Phase {phase},\tTime = {round(t, 3)}")
+            if gif:
+                ax.set_xlim(xmin, xmax)
+                ax.set_ylim(mins[i], maxes[i])
+            ax.set_title(f"$t = {t_str}$")
         else:
             phi_f.f_fixed = fenics_arr_n
             line_early_bl = ax.plot(coord_arr_n, early_bl_n, "--r",
                                     label=early_label if n == 0 else None)
-            line_lin = ax.plot(coord_arr_n, lin_n, color="darkviolet",
-                               label=lin_label if n == 0 else None)
+            # line_lin = ax.plot(coord_arr_n, lin_n, color="darkviolet",
+            #                    label=lin_label if n == 0 else None)
             # line_late_bl = ax.plot(coord_arr_n, late_bl_n, "--r",
             #                        label=late_label if n == 0 else None)
             # line_late_bl_extra = ax.plot(coord_arr_n, late_bl_extra_n, linestyle='--',
@@ -358,7 +423,8 @@ for n in range(n_end):
                                label=quasi_steady_label if n == 0 else None)
             line_fenics = phi_f.plot(norm, t, fixed_domain=True,
                                      label=fenics_label if n == 0 else None)
-        ax.legend()
+        if (panels and panels_n_list.index(n) == ncols * (nrows - 1)) or not panels:
+            ax.legend()
         # if log:
         #     ax.set_xscale("log")
         #     ax.set_yscale("log")
@@ -376,8 +442,70 @@ if gif:
     images[0].save(f"{plot_path}/{short_quants[0]}_animated_bl{log_text}.gif", save_all=True,
                    append_images=images[1:], duration=100, loop=0)
     os.rmdir(f"{plot_path}/frames")
+elif panels:
+    fig.savefig(f"{plot_path}/{short_quants[0]}_bl_panels{log_text}.png", bbox_inches="tight")
 else:
     # Set up the colorbar and save the figure
     Quantity.annotate_plots([phi_f], fig, norm, plot_coord_tex,
                             mins=[-2], maxes=maxes)
     fig.savefig(f"{plot_path}/{short_quants[0]}_bl_traces{log_text}.png", bbox_inches="tight")
+
+"""
+Plots for a and v
+"""
+
+fig_av, axs_av = plt.subplots(2, 1, sharex=True, figsize=(6, 6.66))
+ax_a, ax_v = axs_av[0], axs_av[1]
+response_df = pd.read_csv(f"{data_path}/_responses.csv", index_col=0)
+times = response_df["Time"].to_numpy()
+
+if read_a_v:
+    a_df = pd.read_csv(f"{data_path}/a_analytic.csv", index_col=0)
+    v_df = pd.read_csv(f"{data_path}/v_analytic.csv", index_col=0)
+    a_fenics = a_df["Numeric"].to_numpy()
+    v_fenics = v_df["Numeric"].to_numpy()
+    a_early = a_df["Early"].to_numpy()
+    v_early = v_df["Early"].to_numpy()
+    a_qss_arr = a_df["QSS"].to_numpy()
+    v_qss_arr = v_df["QSS"].to_numpy()
+else:
+    a_fenics = response_df["a"].to_numpy()
+    v_fenics = response_df["v"].to_numpy()
+    a_early = 2 * Delta_p * np.sqrt(times / (np.pi * D_phi_early_pd * epsilon_E))
+    v_early = 1 / np.sqrt(np.pi * D_phi_early_pd * times / epsilon_E)
+
+    a_qss_list, v_qss_list = [], []
+    for t in times:
+        _, _, a_qss, v_qss = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, fixed_domain)
+        a_qss_list.append(a_qss)
+        v_qss_list.append(v_qss)
+    a_qss_arr, v_qss_arr = np.array(a_qss_list), np.array(v_qss_list)
+
+# Plotting for a
+ax_a.plot(times[1:], a_fenics[1:], color="black", label="Numerical")
+ax_a.plot(times[1:], a_early[1:], linestyle="--", color="darkgoldenrod", label="Early time")
+ax_a.plot(times[1:], a_qss_arr[1:], linestyle="--", color="deepskyblue", label="Quasi-steady")
+ax_a.set_xscale("log")
+ax_a.set_ylabel("$a$")
+ax_a.set_ylim(-0.05, 0.3)
+ax_a.legend()
+
+a_df = pd.DataFrame({"Numeric": a_fenics, "Early": a_early, "QSS": a_qss_arr})
+a_df.to_csv(f"{data_path}/a_analytic.csv")
+
+# Plotting for v
+ax_v.plot(times[1:], v_fenics[1:], color="black", label="Numerical")
+ax_v.plot(times[1:], v_early[1:], linestyle="--", color="darkgoldenrod", label="Early time")
+ax_v.plot(times[1:], v_qss_arr[1:], linestyle="--", color="deepskyblue", label="Quasi-steady")
+ax_v.set_xscale("log")
+ax_v.set_yscale("log")
+ax_v.set_xlabel("$t$")
+ax_v.set_ylabel("$v$")
+ax_v.set_ylim(0.6, 300)
+ax_v.legend()
+
+v_df = pd.DataFrame({"Numeric": v_fenics, "Early": v_early, "QSS": v_qss_arr})
+v_df.to_csv(f"{data_path}/v_analytic.csv")
+
+fig_av.savefig(f"{plot_path}/{short_quants[0]}_bl_av{log_text}.png", bbox_inches="tight")
+

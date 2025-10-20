@@ -34,26 +34,30 @@ class SteadyState:
         self.k_0 = params["scales"]["k"]
         self.E_star = params["scales"]["E"]
         self.v_star = params["scales"]["v"]
-
-        self.Q_f = params["Q_f"]["Q_f_final"]
-
-        self.c_left = params["bcs"]["c_left"]
+        if "c_left" in params["bcs"]:
+            self.c_left = params["bcs"]["c_left"]
         self.sigma_l = params["bcs"]["sigma_left"]
-        self.phi_l = self.get_phi_l()
+        self.phi_l = self.get_phi(self.sigma_l)
 
         self.t_phi = (self.mu * self.L ** 2) / (self.k_0 * self.E_star)
         self.t_v = self.L / self.v_star
         self.t_c = self.L ** 2 / self.D_m
-        self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_min * (1 - self.phi_f0))
+        if "Q_f" in params:
+            self.Q_f = params["Q_f"]["Q_f_final"]
+            self.fluid_flux = True
+            self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_min * (1 - self.phi_f0))
+        else:
+            self.Delta_p = params["bcs"]["Delta p"]
+            self.fluid_flux = False
 
         self.xi = xi
 
-    def get_phi_l(self):
-        """Finds the value of phi_f on the left.
+    def get_phi(self, sigma):
+        """Finds the value of phi_f given a stress sigma.
 
-        :return: The value of the porosity on the left.
+        :return: The value of the porosity.
         """
-        b = 2 * (1 + self.nu) * (1 - 2 * self.nu) * self.sigma_l / self.E_min + 2 * self.nu
+        b = 2 * (1 + self.nu) * (1 - 2 * self.nu) * sigma / self.E_min + 2 * self.nu
         discriminant = b ** 2 + 4 * (1 - 2 * self.nu)
         multiplier = (1 - self.phi_f0) / (2 * (1 - 2 * self.nu))
         return 1 - multiplier * (discriminant ** (1 / 2) - b)
@@ -217,8 +221,11 @@ class SteadyState:
 
         :return: The steady state for phi_f, a and B as a tuple.
         """
-        phi_r = so.fsolve(SteadyState._F_phi_r, self.phi_f0,
-                          args=(self.phi_l, self.phi_f0, self.nu, self.factor))[0]
+        if self.fluid_flux:
+            phi_r = so.fsolve(SteadyState._F_phi_r, self.phi_f0,
+                              args=(self.phi_l, self.phi_f0, self.nu, self.factor))[0]
+        else:
+            phi_r = self.get_phi_r_pressure_drop()
         if self.factor > 0.0:
             a_ss = self.calculate_a_alt(float(phi_r))
             B_ss = self.calculate_B(a_ss)
@@ -228,6 +235,37 @@ class SteadyState:
             phi_f_ss = self.calculate_phi(0.0, B_ss)
             a_ss = self.calculate_a(phi_f_ss)
         return phi_f_ss, a_ss, B_ss
+
+    def get_phi_r_pressure_drop(self):
+        """Finds the value for phi_r with an imposed pressure drop
+        and finds the steady state value of v, to be used in factor.
+
+        :return: The steady state for phi_r
+        """
+        phi_r = self.get_phi(self.sigma_l - self.Delta_p)
+        v_ss = self.calculate_v(phi_r)
+        self.update_factor(v_ss)
+        return phi_r
+
+    def calculate_v(self, phi_r):
+        """Calculates the phase-averaged velocity given the porosity on the right.
+
+        :param phi_r: The porosity on the right.
+        :return: The phase-averaged velocity in the steady state.
+        """
+        multiplier = self.E_min * self.t_v / (self.phi_f0 ** 3 * self.t_phi)
+        denominator = 2 * (1 + self.nu) * (1 - 2 * self.nu)
+        term1 = self._F_phi_r_inner((1 - phi_r), self.phi_f0, self.nu)
+        term2 = self._F_phi_r_inner((1 - self.phi_f0), self.phi_f0, self.nu)
+        return multiplier / denominator * (term1 - term2)
+
+    def update_factor(self, v):
+        """Updates the phase-averaged velocity in factor.
+
+        :param v: New phase-averaged velocity.
+        """
+        self.Q_f = v
+        self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_min * (1 - self.phi_f0))
 
     def calculate_c(self, phi_f: np.array, a: float):
         """Calculates the steady state value for c given the porosity.
@@ -269,3 +307,14 @@ class SteadyState:
         term2 = 11 / 6 * (1 - self.phi_f0) ** 2
         term3 = - 3 / 2 * (1 - 2 * self.nu)
         return self.factor + (term2 + term3) / denominator
+
+    def get_alpha_min(self):
+        """Calculates the alpha_min parameter, which determines whether the
+        steady state is physical or not. If alpha_min > 1, a steady state
+        is attainable. Otherwise, it is not.
+
+        :return: alpha_min.
+        """
+        numerator = self.E_min * self.phi_f0 * (2 * (1 - self.nu) - self.phi_f0)
+        denominator = self.Delta_p * 2 * (1 - self.phi_f0) * (1 + self.nu) * (1 - 2 * self.nu)
+        return numerator / denominator
