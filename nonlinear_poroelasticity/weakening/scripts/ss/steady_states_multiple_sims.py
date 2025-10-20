@@ -72,13 +72,15 @@ def calculate_sigma_xx(_phi_f: np.array, _phi_f0: float, _nu: float, _E_min: flo
 # Q_f = 1
 
 # Varying the minimal Young's modulus, E_min
-E_min_arr = np.linspace(0.05, 1.0, 96)
+# E_min_arr = np.linspace(0.05, 1.0, 96)
+E_min_arr = np.linspace(0.25, 0.7, 56)
 
 # Varying the Poisson's ratio, nu
 # nu_arr = np.linspace(-0.95, 0.45, 50)
 
 # Varying the initial porosity, phi_f0
-phi_f0_arr = np.linspace(0.05, 0.95, 91)
+# phi_f0_arr = np.linspace(0.05, 0.95, 91)
+phi_f0_arr = np.linspace(0.30, 0.70, 41)
 
 xi = np.linspace(0, 1, N_x + 1)
 
@@ -137,8 +139,8 @@ else:
 nrows, ncols = 2, 2
 fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(16, 20/3), sharex=True)
 axs = [axs[i][j] for i in range(nrows) for j in range(ncols)]
-quant_arrays = [ss_outputs_dict["a"][:, 45], ss_outputs_dict["v"][:, 45],
-                ss_outputs_dict["alpha_min"][:, 45], ss_outputs_dict["t_crit"][:, 45]]
+quant_arrays = [ss_outputs_dict["a"][:, 20], ss_outputs_dict["v"][:, 20],
+                ss_outputs_dict["alpha_min"][:, 20], ss_outputs_dict["t_crit"][:, 20]]
 latex_quants = ["$a$", "$v$", "$\\alpha_{\\mathrm{min}}$", "$t_{\\mathrm{crit}}$"]
 colours = ["crimson", "firebrick", "darkviolet", "dodgerblue"]
 
@@ -227,7 +229,7 @@ for k in range(nfigs):
         ax.axvline(alpha_min_E_min(nu, Delta_p), linestyle=":", color="black",
                    label="$\\alpha_{\\mathrm{min}} = E_{\\mathrm{min}}$")
         ax.legend()
-        ax.set_ylim(0.045, 1.005)
+        ax.set_ylim(0.245, 0.705)
     fig.savefig(f"{plot_path}/_{subscripts[k]}.png", bbox_inches="tight")
     Z_df = pd.DataFrame(Z)
     fig.clf()
