@@ -50,7 +50,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
-import json
+np.set_printoptions(threshold=sys.maxsize)
 
 from nonlinear_poroelasticity.weakening.scripts import Quantity
 mpl.rcParams.update(mpl.rcParamsDefault)
@@ -74,13 +74,13 @@ class Simulation:
     """A class to run the finite-element method simulation given a list of input parameters.
     """
 
-    def __init__(self, _params: dict, _middle_path: str, _fixed_domain: bool,
+    def __init__(self, _params: dict, _middle_path: str, _plot_coord: str,
                  _num_quants: int, _saving: list[bool], _num_lines: int):
         """Initialiser method
 
         :param _params: Dictionary of all simulation parameters.
         :param _middle_path: Location of plots and data.
-        :param _fixed_domain: Whether we plot on a domain fixed-in-space or not.
+        :param _plot_coord: The spatial coordinate we plot against (xi, x or X).
         :param _num_quants: The number of output quantities.
         :param _saving: Whether we save data or not.
         :param _num_lines: The number of lines to plot.
@@ -108,9 +108,8 @@ class Simulation:
 
         # Whether we plot log time or linear time (boolean)
         self.log_time = True if "log_time" in self.params["comp"] else False
-        self.fixed_domain = _fixed_domain
-        self.plot_coord = "x" if _fixed_domain else "xi"
-        self.plot_coord_tex = "$x$" if _fixed_domain else "$\\xi$"
+        self.plot_coord = _plot_coord
+        self.plot_coord_tex = "$\\xi$" if _plot_coord == "xi" else f"${_plot_coord}$"
 
         self.plotting_freq = int(self.N_time / _num_lines)
         self.saving = _saving
@@ -266,18 +265,32 @@ class Simulation:
             # Fill the left of array with NaNs if domain has been compressed
             if self.N_x - N_part >= 0:
                 f_part = np.concatenate([np.full(self.N_x - N_part, np.nan), f_part])
-                quantity.mesh_fixed = np.linspace(0, 1, self.N_x + 1)
+                quantity.plotting_mesh = np.linspace(0, 1, self.N_x + 1)
             # Else, if domain has expanded, we must change the mesh
             else:
                 dx = 1 / self.N_x
                 N_neg = N_part - self.N_x
-                mesh_fixed = np.linspace(- N_neg * dx, 1, self.N_x + N_neg + 1)
+                plotting_mesh = np.linspace(- N_neg * dx, 1, self.N_x + N_neg + 1)
                 # Update the fixed mesh of the quantity
-                quantity.mesh_fixed = mesh_fixed
+                quantity.plotting_mesh = plotting_mesh
 
             f_part_list.append(f_part)
 
         return tuple(f_part_list)
+
+    def set_X_mesh(self, _u_s: Function):
+        """Change the quantities from (xi, t) coordinates to (X, t) where
+        X = a + (1 - a) * \\xi - u_s.
+
+        :param _u_s: The solid displacement at the current timepoint in (x, t) coordinates.
+        """
+        _, u_s_arr = self.fenics_to_numpy(_u_s)
+        a = u_s_arr[0]
+        X = a + (1 - a) * self.xi_arr - u_s_arr
+        for quantity in self.plotting_quants:
+            _, f_xi = self.fenics_to_numpy(quantity.f)
+            f_X = np.interp(X, self.xi_arr, f_xi)
+            quantity.plotting_f = f_X
 
     def initialise_quantities(self):
         """
@@ -616,12 +629,44 @@ class Simulation:
         Fun = Fun_phi + Fun_E + Fun_c + Fun_sigma + Fun_us + Fun_pf + Fun_v + Fun_a
         return Fun
 
-    def solve(self):
+    def solve(self, t1_solns: dict = None):
         """Solves the problem using the finite element method.
         """
+        # Get quantities and set up some lists
         phi_f, E, c, sigma, u_s, p_f, v_s_ = (self.quantities["phi_f"], self.quantities["E"],
                                               self.quantities["c"], self.quantities["sigma"],
                                               self.quantities["u_s"], self.quantities["p_f"], self.quantities["v_s"])
+        t_list = [float(self.t(0.0))]
+        # Lists of averages to record (Q_f, E_avg, c_avg, phi_f_avg)
+        Q_f_list = [self.v_(0.0)]
+        avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get_average()]}
+        # c_right_list = [float(c_plus(0.0))]
+        phi_r_list = [self.get_phi_bc(self.sigma_l_num - self.Delta_p_num, E.f, _left=False)]
+
+        # If we have an early-time similarity solution, use this in the first timestep
+        if t1_solns:
+            self.t_fl = float(self.t_next(0.0))
+            self.assign_t1_functions(t1_solns)
+            phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v_, a_f = self.w_old.split(deepcopy=True)
+            _, phi_f_arr = self.fenics_to_numpy(phi_f.f)
+            # print(phi_f_arr)
+            t_list.append(float(self.t(0.0)))
+            Q_f_list.append(float(v_(0.0)))
+            self.a_list.append(float(a_f(0.0)))
+            # Record various averages
+            avgs_dict["phi_f"].append(phi_f.get_average())
+            avgs_dict["E"].append(E.get_average())
+            avgs_dict["c"].append(c.get_average())
+            phi_r = self.get_phi_bc(self.sigma_l_num - self.Delta_p_num, E.f, _left=False)
+            phi_r_list.append(phi_r)
+            bc_right_phi = DirichletBC(self.V.sub(0), phi_r, self.markers, 2)
+            self.bcs[1] = bc_right_phi
+            if 1 % self.plotting_freq == 0:
+                if self.plot_coord == "X":
+                    self.set_X_mesh(u_s_new)
+                Quantity.plot_quantities(self.plotting_quants, self.norm, self.t_fl, self.saving,
+                                         plot_coord=self.plot_coord)
+
         Fun = self.create_weak_form()
         # Define the Jacobian, problem and solver
         jacobian = derivative(Fun, self.w)
@@ -629,12 +674,6 @@ class Simulation:
         """
         Loop over time steps and solve
         """
-        t_list = [float(self.t(0.0))]
-        # Lists of averages to record (Q_f, E_avg, c_avg, phi_f_avg)
-        Q_f_list = [self.v_(0.0)]
-        avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get_average()]}
-        # c_right_list = [float(c_plus(0.0))]
-        phi_r_list = [self.get_phi_bc(self.sigma_l_num - self.Delta_p_num, E.f, _left=False)]
         # integral_v_list = [float(integral_v(0.0))]
         # t.tau += delta_tau
         # t_next.tau += delta_tau
@@ -673,14 +712,14 @@ class Simulation:
             self.w_old.assign(self.w)
 
             # Change coordinates onto the fixed domain for plotting
-            (phi_f.f_fixed, E.f_fixed, c.f_fixed, sigma.f_fixed,
-             u_s.f_fixed, p_f.f_fixed, v_s_.f_fixed) = self.xi_t_to_x_t(self.a_list[-1], phi_f, E,
-                                                                        c, sigma, u_s, p_f, v_s_)
+            (phi_f.plotting_f, E.plotting_f, c.plotting_f, sigma.plotting_f,
+             u_s.plotting_f, p_f.plotting_f, v_s_.plotting_f) = self.xi_t_to_x_t(self.a_list[-1], phi_f, E,
+                                                                                 c, sigma, u_s, p_f, v_s_)
 
             # plot at the current timepoint if needed
-            if phi_f.f_fixed[-1] < 0.0:
-                phi_f.f_fixed[-1] = 0.0
-            phi_r = phi_f.f_fixed[-1]
+            if phi_f.plotting_f[-1] < 0.0:
+                phi_f.plotting_f[-1] = 0.0
+            phi_r = phi_f.plotting_f[-1]
             u_s.f = u_s_new
 
             phi_l = self.fenics_to_numpy(phi_f.f)[1][0]
@@ -699,8 +738,10 @@ class Simulation:
                 break
             phi_r_list.append(phi_r)
             if (n + 1) % self.plotting_freq == 0:
+                if self.plot_coord == "X":
+                    self.set_X_mesh(u_s.f)
                 Quantity.plot_quantities(self.plotting_quants, self.norm, self.t_fl, self.saving,
-                                         fixed_domain=self.fixed_domain)
+                                         plot_coord=self.plot_coord)
 
         # Save all relevant quantities
         if any(self.saving) and not os.path.isdir(self.data_path):
@@ -715,6 +756,30 @@ class Simulation:
         self.E_avg_arr = np.array(avgs_dict["E"])
         self.c_avg_arr = np.array(avgs_dict["c"])
         self.phi_fr_arr = np.array(phi_r_list)
+
+    def assign_t1_functions(self, t1_solns: dict):
+        """If we have an early-time similarity solution, we use this solution as our
+        initial guess.
+
+        :param t1_solns: A dictionary containing solutions at the first timestep.
+        """
+        all_names = list(self.old_fn_dict.keys())
+        w_old_vector = self.w_old.sub(0).vector()
+        # Awful code below as FEniCS and numpy do not have compatible indexing
+        # and FEniCS does not have a workable alternative. But it works.
+        phi_f_arr_rev = np.flip(t1_solns["phi_f"])
+        u_s_arr_rev = np.flip(t1_solns["u_s"])
+        w_old_vector[0], w_old_vector[1] = phi_f_arr_rev[0], phi_f_arr_rev[1]
+        w_old_vector[5], w_old_vector[10] = u_s_arr_rev[0], u_s_arr_rev[1]
+        step = len(all_names) - 2
+        for i in range(2, 1001):
+            w_old_vector[step * i] = phi_f_arr_rev[i]
+            w_old_vector[step * i + 4] = u_s_arr_rev[i]
+        w_old_vector[6006] = t1_solns["v"]
+        w_old_vector[6007] = t1_solns["a"]
+        # Move the timesteps forward
+        self.t.tau += self.delta_tau
+        self.t_next.tau += self.delta_tau
 
     def plot_traces(self):
         """Plots time traces of various quantities.

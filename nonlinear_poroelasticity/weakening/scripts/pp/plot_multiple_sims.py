@@ -65,9 +65,8 @@ short_quants = quant_params["short_quants"]
 latex_quants = quant_params["latex_quants"]
 colour_maps = quant_params["colour_maps"]
 cmap_bounds = tuple(quant_params["cmap_bounds"]) if "cmap_bounds" in quant_params else (0.3, 1.0)
-fixed_domain = True if meta_params["fixed_domain"] == "True" else False
-plot_coord = "x" if fixed_domain else "xi"
-plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
+plot_coord = meta_params["plot_coord"]
+plot_coord_tex = meta_params["plot_coord_tex"]
 log_time = True if meta_params["log_time"] == "True" else False
 tlabel = meta_params["tlabel"]
 
@@ -143,11 +142,10 @@ for i in range(num_trace_trials):
     for m in range(num_times):
         t = float(times[int(m * len(times) / num_times)])
         for j, q in enumerate(short_quants):
-            quantities[j].f = data_dicts[i][q][:, m]
+            quantities[j].plotting_f = data_dicts[i][q][:, m]
         if t == 0 and log_time:
             t = times[1]
-        Quantity.plot_quantities(quantities, norm, t, fixed_domain=fixed_domain)
-    print(quantities[0].f[-1])
+        Quantity.plot_quantities(quantities, norm, float(t), plot_coord=plot_coord)
     ylabel = "name" if i == 0 else None
     Quantity.annotate_plots(quantities, fig, norm, plot_coord_tex, ylabel=ylabel,
                             mins=mins, maxes=maxes, colourbar=False)

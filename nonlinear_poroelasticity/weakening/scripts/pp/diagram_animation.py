@@ -166,11 +166,11 @@ for n in range(num_frames):
 
     # Label the plot and add a colourbar
     ax.get_yaxis().set_visible(False)
-    ax.set_xlabel("$x$")
+    ax.set_xlabel("$x / L$")
     fig.colorbar(mpl.cm.ScalarMappable(norm=E_norm, cmap=E.cmap),
                  orientation='vertical',
                  label="$E$", ax=ax)
-    ax.set_title(f"$t = {t}$")
+    ax.set_title(f"$t / t_E = {t}$")
 
     # Save figure
     frame_path = f"{plot_path}/frames/frame_{n}.png"

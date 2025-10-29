@@ -26,7 +26,7 @@
     "num_quants": 3,
     "selected_subtrial": 3,
     "short_quants": [
-      "phi",
+      "phi_f",
       "E",
       "c"
     ],
@@ -73,7 +73,8 @@
       10
     ]
   },
-  "fixed_domain": "False",
+  "plot_coord": "X",
+  "plot_coord_tex": "$X / L$",
   "log_time": "True",
   "tlabel": "$t / t_E$",
   "avg_params": {

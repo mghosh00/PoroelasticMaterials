@@ -23,7 +23,7 @@
     "selected_subtrial": 0,
     "num_quants": 3,
     "short_quants": [
-      "phi",
+      "phi_f",
       "E",
       "c"
     ],

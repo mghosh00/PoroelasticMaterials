@@ -34,10 +34,10 @@ class Quantity:
                                                                      cmap_bounds[0], cmap_bounds[1], 100)))
         self._pos = pos
         self._mesh = mesh
-        self.mesh_fixed = None
+        self.plotting_mesh = None
         self._expression = expression
         self.f = None
-        self.f_fixed = None
+        self.plotting_f = None
         self.u = None
         # self.create_functions_from_mesh(mesh)
         self.interpolate()
@@ -149,19 +149,21 @@ class Quantity:
         return np.mean(q_array)
 
     def plot(self, norm: mpl.colors.Normalize, time: float,
-             save_data: bool = False, fixed_domain: bool = False,
+             save_data: bool = False, plot_coord: str = 'xi',
              label: str = None):
         """Plots the curve at the current timepoint (dictated by the col_val).
 
         :param norm: A normalising function for the colorscale.
         :param time: A float for the current timepoint.
         :param save_data: Whether we save the data or not.
-        :param fixed_domain: Whether we plot on the fixed or transformed domain.
+        :param plot_coord: Which spatial coordinate we use to plot (xi, x or X).
         :param label: Whether the plot should have a label.
         """
-        if fixed_domain and self.f_fixed is not None:
-            f_array = self.f_fixed
-            mesh_array = self.mesh_fixed
+        if plot_coord == "x" and self.plotting_f is not None:
+            f_array = self.plotting_f
+            mesh_array = self.plotting_mesh
+        elif plot_coord == "X":
+            mesh_array, f_array = self.fenics_to_numpy(self._mesh, self.plotting_f)
         else:
             f = self.f
             mesh_array, f_array = self.fenics_to_numpy(self._mesh, f)
@@ -196,25 +198,25 @@ class Quantity:
     @staticmethod
     def plot_quantities(quantities, norm: mpl.colors.Normalize,
                         time: float, save_list: list[bool] = None,
-                        fixed_domain: bool = False):
+                        plot_coord: str = 'xi'):
         """Plots multiple quantities at the given time.
 
         :param quantities: The list of quantities.
         :param norm: The norm to be applied.
         :param time: The current timepoint.
         :param save_list: Whether we save (choice for each quantity).
-        :param fixed_domain: Whether we plot on the fixed domain or the transformed one
+        :param plot_coord: Which spatial coordinate we use to plot (xi, x or X).
         """
         lines = []
         if save_list:
             for i, quantity in enumerate(quantities):
                 line = quantity.plot(norm, time, save_list[i],
-                                     fixed_domain=fixed_domain)
+                                     plot_coord=plot_coord)
                 lines.append(line)
         else:
             for i, quantity in enumerate(quantities):
                 line = quantity.plot(norm, time,
-                                     fixed_domain=fixed_domain)
+                                     plot_coord=plot_coord)
                 lines.append(line)
         return lines
 

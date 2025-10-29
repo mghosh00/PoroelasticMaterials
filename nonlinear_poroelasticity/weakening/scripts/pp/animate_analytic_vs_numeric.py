@@ -19,6 +19,7 @@ We will compare the result from the numerics to these two boundary layer predict
 
 import os
 import numpy as np
+import scipy.integrate as si
 import scipy.special as ss
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -55,13 +56,12 @@ log = False
 log_text = "_log" if log else ""
 
 # Whether we'll plot on a fixed domain or not
-fixed_domain = False
-plot_coord = "x" if fixed_domain else "xi"
-plot_coord_tex = "$x$" if fixed_domain else "$\\xi$"
+plot_coord = "X"
+plot_coord_tex = "$\\xi$" if plot_coord == "xi" else f"${plot_coord}$"
 plot_coord_tex = f"log$(1 - ${plot_coord_tex})" if log else plot_coord_tex
 
 # Whether we read the analytic solutions for a and v from a dataframe or not
-read_a_v = False
+read_a_v = True
 
 """
 Computational parameters
@@ -129,7 +129,7 @@ D_phi_late = ((1 * (1 - phi_f0) * ((1 - phi_f0) ** 2 + 1 - 2 * nu) * t_v) /
 """
 Read in quantity .csv files.
 """
-short_quants = ["phi"]
+short_quants = ["phi_f"]
 latex_quants = ["log$(\\phi_{f})$" if log else "$\\phi_{f}$"]
 colours = ["blue"]
 data_path = f"{path}/data"
@@ -158,6 +158,25 @@ coord_arr[-1] = 1
 #     coord_arr = 1 - coord_arr
 
 
+def convert_to_X(_phi_f: np.array, _xi_arr: np.array, _a: float, _phi_f0: float):
+    """Converts the array _phi_f into (X, t) coordinates from (x, t) coordinates
+    using interpolation and the displacement array u_s.
+
+    :param _phi_f: The porosity array in (x, t) coordinates.
+    :param _xi_arr: The xi array.
+    :param _a: The left boundary.
+    :param _phi_f0: The initial porosity.
+    :return: The porosity array in (X, t) coordinates.
+    """
+    _x_arr = _a + (1 - _a) * _xi_arr
+    integral = np.array([0] + [si.simpson(_phi_f[:j], _x_arr[:j]) for j in range(1, len(_x_arr))])
+    _u_s = _a + (integral - _phi_f0 * (_x_arr - _a)) / (1 - _phi_f0)
+    print(_u_s[-1])
+    X = _x_arr - _u_s
+    _phi_f_X = np.interp(X, _xi_arr, _phi_f)
+    return _phi_f_X
+
+
 """
 Defining the various analytic solutions to parts of the problem
 """
@@ -180,23 +199,30 @@ def phi_f_bl_early(_x: np.array, _t: float, _phi_f0: float, _Q_f: float,
     return _phi_f0 - _Q_f * (1 - _phi_f0) * (term2 + term3)
 
 
-def phi_f_bl_early_pressure_drop(_x: np.array, _t: float, _phi_f0: float, _nu: float,
-                                 _Delta_p: float, _D_phi_early: float, _epsilon_E: float):
+def phi_f_bl_early_pressure_drop(_xi: np.array, _t: float, _phi_f0: float, _nu: float,
+                                 _Delta_p: float, _D_phi_early: float, _epsilon_E: float,
+                                 _plot_coord: str):
     """Returns the porosity in the early boundary layer when there is an applied
     pressure drop.
 
-    :param _x: The spatial array.
+    :param _xi: The spatial array.
     :param _t: The timepoint.
     :param _phi_f0: The initial porosity.
     :param _nu: The Poisson's ratio.
     :param _Delta_p: The pressure drop.
     :param _D_phi_early: The diffusion coefficient.
     :param _epsilon_E: The ratio of the poroelastic and weakening timescales.
+    :param _plot_coord: The coordinate we plot against.
     :return: The porosity in this boundary layer.
     """
+    _a = 2 * _Delta_p * np.sqrt(_t / (np.pi * _D_phi_early * _epsilon_E))
+    _x = _a + (1 - _a) * _xi
     multiplier = (1 - _phi_f0) * (1 + _nu) * (1 - 2 * _nu) * _Delta_p / (1 - _nu)
     inner = 1 - ss.erf((1 - _x) / (2 * np.sqrt(_D_phi_early * _t / _epsilon_E)))
-    return _phi_f0 - multiplier * inner
+    _phi_f = _phi_f0 - multiplier * inner
+    if _plot_coord == "X":
+        _phi_f = convert_to_X(_phi_f, _xi, _a, _phi_f0)
+    return _phi_f
 
 
 def phi_f_bl_late(_x: np.array, _Q_f: float, _D_phi_late: float):
@@ -252,7 +278,7 @@ def phi_f_lin_elastic(_x_arr: np.array, _t: float, _Q_f: float,
 
 
 def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
-                            _E_min: float, _params: dict, _fixed_domain: bool):
+                            _E_min: float, _params: dict, _plot_coord: str):
     """Calculates the quasi-steady expression for phi_f for the case in which the
     weakening timescale is much longer than the other timescales, and we are in this
     regime. Provided c has converged to its steady state of a constant profile, the
@@ -264,6 +290,7 @@ def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
     :param _t_E: The weakening timescale.
     :param _E_min: The minimal Young's modulus value.
     :param _params: All other parameters from the params dict.
+    :param _plot_coord: The coordinate which we plot against.
     :return: The quasi-steady expressions for the porosity and phase-averaged velocity.
     """
     _t_sc = _params["scales"]["t"]
@@ -275,9 +302,13 @@ def phi_f_quasi_steady_late(_xi_arr: np.array, _t: float, _t_E: float,
     _phi_f_qss, _a_qss, _B_qss = quasi_steady_state.solve_analytic()
     _v_qss = quasi_steady_state.Q_f
     # _phi_f_qss is in xi coordinates, but we want to convert it to x coordinates
-    if fixed_domain:
+    if plot_coord == "x":
         _x_arr = _a_qss + (1 - _a_qss) * _xi_arr
         _coord_arr = _x_arr
+    elif plot_coord == "X":
+        _coord_arr = _xi_arr
+        _phi_f0 = _params["ics"]["phi_f"]
+        _phi_f_qss = convert_to_X(_phi_f_qss, _xi_arr, _a_qss, _phi_f0)
     else:
         _coord_arr = _xi_arr
     return _coord_arr, _phi_f_qss, _a_qss, _v_qss
@@ -348,7 +379,7 @@ for n in range(n_end):
     t_str = np.format_float_positional(float(times[n]), precision=3, unique=False,
                                        fractional=False, trim='k')
     phase = 1 if t < t_1 else 2 if t < t_2 else 3
-    N_x_current = np.count_nonzero(~np.isnan(data_dict["phi"][:, n]))
+    N_x_current = np.count_nonzero(~np.isnan(data_dict["phi_f"][:, n]))
     # print(N_x_current)
     i_min, i_max = (N_x + 1 - N_x_current, N_x + 1)
     coord_arr_n = coord_arr[i_min:i_max]
@@ -363,12 +394,13 @@ for n in range(n_end):
     if fluid_flux:
         phi_f_early = phi_f_bl_early(coord_arr_n, t, phi_f0, Q_f, D_phi_early)
     else:
-        phi_f_early = phi_f_bl_early_pressure_drop(coord_arr_n, t, phi_f0, nu,
-                                                   Delta_p, D_phi_early_pd, epsilon_E)
+        phi_f_early = phi_f_bl_early_pressure_drop(coord_arr, t, phi_f0, nu,
+                                                   Delta_p, D_phi_early_pd, epsilon_E,
+                                                   plot_coord)
     # phi_f_lin = phi_f_lin_elastic(coord_arr_n, t, Q_f, phi_f0, D_phi_early)
     # phi_f_late = phi_f_bl_late(coord_arr_n, Q_f, D_phi_late)
     # phi_f_late_extra = phi_f_bl_late_longer(coord_arr_n, Q_f, D_phi_late, phi_f0, nu)
-    x_arr_qss, phi_f_quasi_steady, _, _ = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, fixed_domain)
+    x_arr_qss, phi_f_quasi_steady, _, _ = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, plot_coord)
     early_bl_quants.append(phi_f_early)
     # lin_quants.append(phi_f_lin)
     # late_bl_quants.append(phi_f_late)
@@ -421,7 +453,7 @@ for n in range(n_end):
             #                              color='goldenrod', label=late_extra_label if n == 0 else None)
             line_qss = ax.plot(x_arr_qss, qss_n, color="firebrick", linestyle="--",
                                label=quasi_steady_label if n == 0 else None)
-            line_fenics = phi_f.plot(norm, t, fixed_domain=True,
+            line_fenics = phi_f.plot(norm, t, plot_coord=plot_coord,
                                      label=fenics_label if n == 0 else None)
         if (panels and panels_n_list.index(n) == ncols * (nrows - 1)) or not panels:
             ax.legend()
@@ -457,13 +489,15 @@ Plots for a and v
 fig_av, axs_av = plt.subplots(2, 1, sharex=True, figsize=(6, 6.66))
 ax_a, ax_v = axs_av[0], axs_av[1]
 response_df = pd.read_csv(f"{data_path}/_responses.csv", index_col=0)
-times = response_df["Time"].to_numpy()
+times = response_df["Time"].to_numpy()[:-1]
 
 if read_a_v:
     a_df = pd.read_csv(f"{data_path}/a_analytic.csv", index_col=0)
     v_df = pd.read_csv(f"{data_path}/v_analytic.csv", index_col=0)
-    a_fenics = a_df["Numeric"].to_numpy()
-    v_fenics = v_df["Numeric"].to_numpy()
+    # a_fenics = a_df["Numeric"].to_numpy()
+    # v_fenics = v_df["Numeric"].to_numpy()
+    a_fenics = response_df["a"].to_numpy()[:-1]
+    v_fenics = response_df["v"].to_numpy()[:-1]
     a_early = a_df["Early"].to_numpy()
     v_early = v_df["Early"].to_numpy()
     a_qss_arr = a_df["QSS"].to_numpy()
@@ -476,7 +510,7 @@ else:
 
     a_qss_list, v_qss_list = [], []
     for t in times:
-        _, _, a_qss, v_qss = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, fixed_domain)
+        _, _, a_qss, v_qss = phi_f_quasi_steady_late(coord_arr, t, t_E, E_min, params, plot_coord)
         a_qss_list.append(a_qss)
         v_qss_list.append(v_qss)
     a_qss_arr, v_qss_arr = np.array(a_qss_list), np.array(v_qss_list)
@@ -501,7 +535,7 @@ ax_v.set_xscale("log")
 ax_v.set_yscale("log")
 ax_v.set_xlabel("$t$")
 ax_v.set_ylabel("$v$")
-ax_v.set_ylim(0.6, 300)
+ax_v.set_ylim(0.6, 150)
 ax_v.legend()
 
 v_df = pd.DataFrame({"Numeric": v_fenics, "Early": v_early, "QSS": v_qss_arr})

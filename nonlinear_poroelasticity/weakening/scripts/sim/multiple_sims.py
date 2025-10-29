@@ -92,7 +92,7 @@ alpha_min_arr = ((E_min_arr * phi_f0 * (2 * (1 - nu) - phi_f0) * t_v)
 t_crit_arr_analytic = np.log((1 / E_min_arr - 1) / (1 / alpha_min_arr - 1))
 
 # Create the plots
-fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+fig, ax = plt.subplots(1, 1, figsize=(12, 3.333))
 t_crit_arr_analytic = t_crit_arr_analytic[~np.isnan(t_crit_arr_analytic)]
 t_crit_len = len(t_crit_arr_analytic)
 for i in range(len(sub_trials)):
