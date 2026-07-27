@@ -19,7 +19,7 @@ The initial conditions are at t = 0:
 with boundary conditions (on a domain [a(t), 1] with left moving boundary):
 
         v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = 1,
-        c = \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}(c - c_{-\\infty})v_{f} = 0 at x = a(t),
+        \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}(c - c_{-\\infty})v_{f} = 0 at x = a(t),
         \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} = 0 at x = 1,
 
 The moving boundary can be determined by the following implicit relation:
@@ -50,9 +50,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import pandas as pd
-np.set_printoptions(threshold=sys.maxsize)
 
 from nonlinear_poroelasticity.weakening.scripts import Quantity
+
+np.set_printoptions(threshold=sys.maxsize)
 mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
@@ -75,7 +76,8 @@ class Simulation:
     """
 
     def __init__(self, _params: dict, _middle_path: str, _plot_coord: str,
-                 _num_quants: int, _saving: list[bool], _num_lines: int):
+                 _num_quants: int, _saving: list[bool], _num_lines: int,
+                 _log_t: bool = False):
         """Initialiser method
 
         :param _params: Dictionary of all simulation parameters.
@@ -84,10 +86,6 @@ class Simulation:
         :param _num_quants: The number of output quantities.
         :param _saving: Whether we save data or not.
         :param _num_lines: The number of lines to plot.
-        """
-
-        """
-        Computational parameters
         """
         self.params = _params
 
@@ -114,10 +112,6 @@ class Simulation:
         self.plotting_freq = int(self.N_time / _num_lines)
         self.saving = _saving
 
-        """
-        Define model parameters
-        """
-
         # Timescale, [t]
         self.t_sc = Constant(self.params["scales"]["t"])
 
@@ -127,29 +121,27 @@ class Simulation:
         # Initial porosity, \\phi_{f,0}
         self.phi_f0 = Constant(self.params["ics"]["phi_f"])
 
-        # Degradation parameter
+        # Degradation parameter, \\beta_E
         beta_E = Constant(self.params["phys"]["beta_E"])
 
-        # Diffusive parameter for the solute concentration
+        # Diffusive parameter for the solute concentration, D_m
         D_m = Constant(self.params["phys"]["D_m"])
 
         # Minimum (nondimensional) value of E (can be thought of as
-        # fraction of original E)
+        # fraction of original E), E_min
         self.E_min = Constant(self.params["phys"]["E_min"])
 
-        # Poisson ratio and viscosity
+        # Poisson ratio, \\nu and viscosity, \\mu
         self.nu = Constant(self.params["phys"]["nu"])
         mu = Constant(self.params["phys"]["mu"])
 
-        # Permeability scale
+        # Permeability scale, k_0
         k_0 = Constant(self.params["scales"]["k"])
 
         # Solute concentration, Young's modulus and velocity scales
         c_star = Constant(self.params["scales"]["c"])
         E_star = Constant(self.params["scales"]["E"])
         v_star = Constant(self.params["scales"]["v"])
-        v_f_star = Constant(self.params["scales"]["v_f"])
-        v_s_star = Constant(self.params["scales"]["v_s"])
 
         # Timescales (only parameters other than nu and phi_f0 in the equations)
         self.t_phi = (mu * L ** 2) / (k_0 * E_star)
@@ -163,20 +155,16 @@ class Simulation:
         self.t_E = 1 / (beta_E * c_star)
         self.t_c = L ** 2 / D_m
 
-        # c_plus, c_minus = 0, 0
-        # if "c_plus" in self.params["bcs"]:
-        #     c_plus = Constant(self.params["bcs"]["c_plus"])
-        # if "c_minus" in self.params["bcs"]:
-        #     c_minus = Constant(self.params["bcs"]["c_minus"])
-
+        # Applied stress (if any) and pressure drop across material
         self.sigma_l = Constant(self.params["bcs"]["sigma_left"])
         self.Delta_p = Constant(self.params["bcs"]["Delta p"])
 
         self.x = Expression('x[0]', degree=1)
 
+        # Converting between FEniCS Constants and floats
         self.t_sc_num, self.phi_f0_num, self.nu_num = self.nums(self.t_sc, self.phi_f0, self.nu)
         self.t_v_num, self.t_phi_num, self.t_E_num, self.t_c_num = self.nums(self.t_v, self.t_phi, self.t_E, self.t_c)
-        self.sigma_l_num, self.Delta_p_num = self.nums(self.sigma_l, self.Delta_p)
+        self.sigma_l_num, self.Delta_p_num, self.E_min_num = self.nums(self.sigma_l, self.Delta_p, self.E_min)
 
         # Setting up the moving boundary
         self.a_list = [self.params["ics"]["a"]]
@@ -185,7 +173,7 @@ class Simulation:
         self.data_path = f"resources/{_middle_path}/data"
         self.plot_path = f"resources/{_middle_path}/plots"
 
-        # Run the initial methods
+        # Running the initial methods
         self.create_mesh()
         self.initialise_timesteps()
         self.initialise_quantities()
@@ -226,10 +214,6 @@ class Simulation:
         self.t_final = float(Expression(t_tau, degree=1, tau=self.N_time * self.delta_tau,
                                         delta_tau=self.delta_tau, N_time=self.N_time, domain=self.mesh)(0.0))
 
-# For calculating the initial value of v (from asymptotic early-time analysis)
-# D_phi = (1 - nu_num) / (1 + nu_num) / (1 - 2 * nu_num) * t_sc_num / t_v_num
-# v_0 = 1 / np.sqrt(np.pi * D_phi * float(t(0.0))) if early_time_soln else self.params["ics"]["v"]
-
     def fenics_to_numpy(self, f: Function):
         """Converts a FEniCS function to numpy
 
@@ -244,7 +228,7 @@ class Simulation:
         return mesh_array, f_array
 
     def xi_t_to_x_t(self, _a: float, *_quantities: Quantity):
-        """Change the quantity from (xi, t) coordinates to (x, t) where
+        """Change the quantity from (\\xi, t) coordinates to (x, t) where
         \\xi = 1 - \\frac{1 - x}{1 - a(t)}. We also fit onto the new mesh, which
         will involve some interpolation.
 
@@ -305,8 +289,10 @@ class Simulation:
         p_f = Quantity("$p_f$", "Oranges", 5, self.mesh)
         # v = Quantity("$v$", "RdPu", 6, self.mesh)
         # This quantity is just for plotting purposes
-        v_s_ = Quantity("$v_{s}$", "YlOrBr", 6, self.mesh)
-        self.quantities = {"phi_f": phi_f, "E": E, "c": c, "sigma": sigma, "u_s": u_s, "p_f": p_f, "v_s": v_s_}
+        v_s = Quantity("$v_{s}$", "YlOrBr", 6, self.mesh)
+        self.quantities = {"phi_f": phi_f, "E": E, "c": c, "sigma": sigma, "u_s": u_s, "p_f": p_f, "v_s": v_s}
+
+        # Separating which quantities are for plotting and which are for solving
         q_names_plotting = list(self.quantities.keys())
         q_names_solving = q_names_plotting[:-1] + ["v", "a"]
         # Set up the functions from the joint space
@@ -316,11 +302,14 @@ class Simulation:
         w_0 = self.create_initial_conditions()
         self.w_old = project(w_0, self.V)
 
+        # Creating functions and old functions (for calculating time derivatives)
         self.w = Function(self.V)
         functions = split(self.w)
         old_functions = split(self.w_old)
         self.fn_dict = {q_names_solving[i]: functions[i] for i in range(self.num_quants)}
         self.old_fn_dict = {q_names_solving[i]: old_functions[i] for i in range(self.num_quants)}
+
+        # The 'f' functions are for accessing numpy arrays from FEniCS functions
         f_tuple = self.w_old.split(deepcopy=True)
         self.a_f = f_tuple[-1]
         self.v_ = f_tuple[-2]
@@ -333,22 +322,14 @@ class Simulation:
             # Associate functions with "f" values (used in plotting/recording)
             self.quantities[q_name].f = f_tuple[i]
         # We don't know the initial array v_s
-        v_s_.f = np.full(self.N_x + 1, np.nan)
+        v_s.f = np.full(self.N_x + 1, np.nan)
 
     def create_initial_conditions(self):
         """Sets up the initial conditions of the simulation.
 
         :return: A FEniCS function containing the initial conditions.
         """
-        # c_ic = 'c_minus + (c_plus - c_minus) * x[0]'
         c_ic = '0.0'
-        # phi_ic = ('phi_f0 - (1 - phi_f0) * gamma / D_phi * '
-        #           '(1 - erf((1 - x[0]) / (2 * sqrt(D_phi * t1))))')
-        # D_phi = (1 - nu_num) / (1 - 2 * nu_num) / (1 + nu_num)
-        # t1 = float(t_next(0.0)) * t_E_num / t_phi_num
-        # v0 = 1 / np.sqrt(np.pi * D_phi * t1)
-        # a0 = 2 * t_phi_num / t_v_num * np.sqrt(t1 / (np.pi * D_phi))
-        # print(t1, v0, a0)
         ics = ("phi_f0", self.params["ics"]["E"], c_ic, "0.0",
                self.params["ics"]["u_s"], "0.0", "v_0", "a_0")
         return Expression(ics, degree=1, phi_f0=self.phi_f0, v_0=0.0, a_0=self.a_list[0], 
@@ -365,7 +346,7 @@ class Simulation:
         return numerator / denominator
 
     def compute_g(self, _phi_f):
-        """Computes g as a function of the porosity.
+        """Computes g as a function of the porosity (a sort of nonlinear strain).
 
         :param _phi_f: The porosity.
         :return: The effective stress.
@@ -416,12 +397,12 @@ class Simulation:
         self.ds = Measure('ds', domain=self.mesh, subdomain_data=self.markers)
         bcs = []
 
+        # Get boundary condition for \\phi_f given boundary condition on \\sigma
         E = self.quantities["E"]
         bc_left_phi = DirichletBC(self.V.sub(0), self.get_phi_bc(self.sigma_l_num, E.f), self.markers, 1)
-
         bcs.append(bc_left_phi)
-        # Imposed fluid flux or pressure drop
 
+        # Imposed fluid flux or pressure drop
         if "Q_f" in self.params and "Delta p" not in self.params["bcs"]:
             self.Q_f = Expression(self.params["Q_f"]["expr"],
                                   degree=1, t=self.t, delta_tau=self.delta_tau, N_time=self.N_time, domain=self.mesh)
@@ -437,7 +418,7 @@ class Simulation:
         else:
             print("Need exactly one of Q_f and Delta p prescribed, exiting...")
             sys.exit()
-        
+
         if "c_left" in self.params["bcs"]:
             bc_left_c = DirichletBC(self.V.sub(2), self.params["bcs"]["c_left"], self.markers, 1)
             bcs.append(bc_left_c)
@@ -456,7 +437,9 @@ class Simulation:
         self.bcs = bcs
 
     def get_vs_from_E_phi(self, _phi_f, _E, _delta_t):
-        _, Q_f_arr = self.fenics_to_numpy(self.Q_f)
+        """Function to retrieve the solid velocity for plotting purposes.
+        """
+        _, v_arr = self.fenics_to_numpy(self.Q_f)
         _, phi_f_arr = self.fenics_to_numpy(_phi_f)
         _, E_arr = self.fenics_to_numpy(_E)
         k_arr = self.compute_k(phi_f_arr)
@@ -467,11 +450,13 @@ class Simulation:
         _a = self.a_list[-1]
         prod = (E_arr * dg_dphi_arr * np.gradient(phi_f_arr, self.xi_arr) +
                 g_arr * np.gradient(E_arr, self.xi_arr))
-        _v_s = (Q_f_arr / self.t_v + k_arr * prod
+        _v_s = (v_arr / self.t_v + k_arr * prod
                 / ((1 - _a) * self.t_phi)) * self.t_v_s
         return _v_s
 
     def get_vs_from_u_phi(self, _phi_f, _u_s_new, _u_s_old, _delta_t):
+        """Function to retrieve the solid velocity for plotting purposes.
+        """
         _, phi_f_arr = self.fenics_to_numpy(_phi_f)
         _, u_s_new_arr = self.fenics_to_numpy(_u_s_new)
         _, u_s_old_arr = self.fenics_to_numpy(_u_s_old)
@@ -481,18 +466,6 @@ class Simulation:
         return (1 / (1 - phi_f_arr) *
                 ((1 - self.phi_f0_num) * dus_dt_arr - (1 - self.xi_arr) * da_dt_val * (phi_f_arr - self.phi_f0_num))
                 * self.t_v_num / self.t_sc_num)
-
-    def get_sigma_from_E_g(self, _E, _g):
-        """Computes the Terzaghi stress as a function of the Young's modulus
-        and the porosity.
-
-        :param _E: The Young's modulus.
-        :param _g: The effective stress (function of porosity).
-        :return: The Terzaghi stress.
-        """
-        _, E_arr = self.fenics_to_numpy(_E)
-        _, g_arr = self.fenics_to_numpy(_g)
-        return E_arr * g_arr
 
     def prepare_figure(self, short_quants, nrows, ncols):
         """Set up figure for the overall plot
@@ -528,9 +501,9 @@ class Simulation:
         a, v = self.fn_dict["a"], self.fn_dict["v"]
         a_old, v_old = self.old_fn_dict["a"], self.old_fn_dict["v"]
         v_a, v_v = self.test_fn_dict["a"], self.test_fn_dict["v"]
-        print(self.t(0.0), self.t_next(0.0))
-        # define the time derivatives
-        dphi_dt = (phi_f.u - phi_f.u_old) / self.delta_t
+
+        # Define the time derivatives
+        dphi_f_dt = (phi_f.u - phi_f.u_old) / self.delta_t
         dE_dt = (E.u - E.u_old) / self.delta_t
         dc_dt = (c.u - c.u_old) / self.delta_t
         da_dt = (a - a_old) / self.delta_t
@@ -538,18 +511,14 @@ class Simulation:
 
         # Effective permeability and effective stress
         k = (1 - self.phi_f0) ** 2 * (phi_f.u ** 3) / pow(self.phi_f0, 3) / (1 - phi_f.u) ** 2
-        k_div_phi = (1 - self.phi_f0) ** 2 * (phi_f.u ** 2) / pow(self.phi_f0, 3) / (1 - phi_f.u) ** 2
         g = (((1 - self.phi_f0) / (1 - phi_f.u) - 2 * self.nu - (1 - 2 * self.nu) * (1 - phi_f.u) / (1 - self.phi_f0))
              / (2 * (1 + self.nu) * (1 - 2 * self.nu)))
-        dg_dphi = ((1 - self.phi_f0) /
-                   (1 - phi_f.u) ** 2 + (1 - 2 * self.nu) / (1 - self.phi_f0)) / (2 * (1 + self.nu) * (1 - 2 * self.nu))
-
         dEg_dxi = (E.u * g).dx(0)
 
         # Find intermediate expressions for the solid and fluid velocities
         # Below are two different expressions that we need for the solid velocity (they
         # are equivalent definitions)
-        self._Q_f = Expression("val", degree=1, val=self.v_(0.0), domain=self.mesh)
+        self.v = Expression("val", degree=1, val=self.v_(0.0), domain=self.mesh)
         # v_s = t_v_s * (v / t_v + k * p_f.u.dx(0) / ((1 - a) * t_phi))
         _v_s = (self.t_v_s / (1 - phi_f.u) *
                 ((1 - self.phi_f0) * dus_dt / self.t_sc - (1 - self.xi) * da_dt * (phi_f.u - self.phi_f0) / self.t_sc))
@@ -560,45 +529,19 @@ class Simulation:
         # __v = (phi_f.u * _v_f + (1 - phi_f.u) * _v_s)
         # _v = Q_f
 
-        """
-        Define the weak form
-        """
-
         # Weak form for the phi equation
-        Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / self.t_sc * dx +
+        Fun_phi = ((dphi_f_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / self.t_sc * dx +
                    ((1 / (1 - a))**2 * (1 - phi_f.u) * k * dEg_dxi / self.t_phi -
                     (1 / (1 - a)) * phi_f.u * (v / self.t_v - (1 - self.xi) * da_dt / self.t_sc)) * phi_f.v.dx(0) * dx +
                    (1 / (1 - a)) * (v / self.t_v) * phi_f.v * self.ds(2) -
                    (1 / (1 - a)) * (v / self.t_v - da_dt / self.t_sc) * phi_f.v * self.ds(1))
-        # Fun_phi = ((dphi_dt - da_dt * phi_f.u / (1 - a)) * phi_f.v / t_sc * dx +
-        #            ((1 / (1 - a))**2 * phi_f.u * k_e.u * dEg_dx / t_phi -
-        #             (1 / (1 - a)) * phi_f.u * (Q_f / t_v_f + xi * da_dt / t_sc)) * phi_f.v.dx(0) * dx +
-        #            (Q_f / t_v_f + da_dt / t_sc) * phi_f.v / (1 - a) * ds(2))
-        #            (Q_f / t_v_f) * phi_f.v / (1 - a) * ds(1))
-        # Fun_phi = ((dphi_dt - da_dt * (1 - xi) / (1 - a) * phi_f.u.dx(0)) / t_sc * phi_f.v * dx +
-        #            (phi_f.u * _v_s).dx(0) / (1 - a) / t_v_s * phi_f.v * dx +
-        #            k * p_f.u.dx(0) / ((1 - a) ** 2 * t_phi) * phi_f.v.dx(0) * dx)
 
         # Weak form for the E equation
         Fun_E = (dE_dt / self.t_sc + c.u * (E.u - self.E_min) / self.t_E
                  + (_v_s / self.t_v_s - (1 - self.xi) * da_dt / self.t_sc) / (1 - a) * E.u.dx(0)) * E.v * dx
 
-        # Weak form for the c equation
-        # Fun_c = ((phi_f.u * dc_dt + dphi_dt * c.u -
-        #           da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v * dx +
-        #          phi_f.u / (1 - a) *
-        #          (c.u.dx(0) / ((1 - a) * t_c) -
-        #           (_v_f / t_v_f - (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0) * dx +
-        #          c.u * phi_f.u * _v_f / (1 - a) / t_v_f * c.v * ds(2))
         # Weak form for the c equation with new boundary conditions
-        # Fun_c = (((phi_f.u * dc_dt + dphi_dt * c.u -
-        #           da_dt * c.u * phi_f.u / (1 - a)) / t_sc * c.v +
-        #          1/ (1 - a) *
-        #          (phi_f.u * c.u.dx(0) / ((1 - a) * t_c) -
-        #           (phi_f_v_f / t_v_f - phi_f.u * (1 - xi) * da_dt / t_sc) * c.u) * c.v.dx(0)) * dx +
-        #          c.u * v / (1 - a) / t_v_f * c.v * ds(2) +
-        #          (c.u * da_dt / t_sc - v * c_minus / t_v) / (1 - a) * c.v * ds(1))
-        Fun_c = (((phi_f.u * dc_dt + dphi_dt * c.u -
+        Fun_c = (((phi_f.u * dc_dt + dphi_f_dt * c.u -
                    da_dt * c.u * phi_f.u / (1 - a)) / self.t_sc * c.v +
                   1/ (1 - a) *
                   (phi_f.u * c.u.dx(0) / ((1 - a) * self.t_c) -
@@ -618,8 +561,10 @@ class Simulation:
 
         # Weak form for the phase-averaged velocity
         if "Q_f" in self.params:
+            # This line is only used if we impose a fixed phase-averaged velocity
             Fun_v = (((self.Q_f - v) / self.t_v) * v_v * dx)
         else:
+            # This line is used if we have a fixed pressure drop
             Fun_v = (v - _v) * v_v * dx
 
         # Weak form for the moving boundary
@@ -633,12 +578,12 @@ class Simulation:
         """Solves the problem using the finite element method.
         """
         # Get quantities and set up some lists
-        phi_f, E, c, sigma, u_s, p_f, v_s_ = (self.quantities["phi_f"], self.quantities["E"],
+        phi_f, E, c, sigma, u_s, p_f, v_s = (self.quantities["phi_f"], self.quantities["E"],
                                               self.quantities["c"], self.quantities["sigma"],
                                               self.quantities["u_s"], self.quantities["p_f"], self.quantities["v_s"])
         t_list = [float(self.t(0.0))]
-        # Lists of averages to record (Q_f, E_avg, c_avg, phi_f_avg)
-        Q_f_list = [self.v_(0.0)]
+        v_list = [self.v_(0.0)]
+        # Lists of averages to record (phi_f_avg, E_avg, c_avg)
         avgs_dict = {"phi_f": [phi_f.get_average()], "E": [E.get_average()], "c": [c.get_average()]}
         # c_right_list = [float(c_plus(0.0))]
         phi_r_list = [self.get_phi_bc(self.sigma_l_num - self.Delta_p_num, E.f, _left=False)]
@@ -649,9 +594,8 @@ class Simulation:
             self.assign_t1_functions(t1_solns)
             phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v_, a_f = self.w_old.split(deepcopy=True)
             _, phi_f_arr = self.fenics_to_numpy(phi_f.f)
-            # print(phi_f_arr)
             t_list.append(float(self.t(0.0)))
-            Q_f_list.append(float(v_(0.0)))
+            v_list.append(float(v_(0.0)))
             self.a_list.append(float(a_f(0.0)))
             # Record various averages
             avgs_dict["phi_f"].append(phi_f.get_average())
@@ -671,12 +615,7 @@ class Simulation:
         # Define the Jacobian, problem and solver
         jacobian = derivative(Fun, self.w)
 
-        """
-        Loop over time steps and solve
-        """
-        # integral_v_list = [float(integral_v(0.0))]
-        # t.tau += delta_tau
-        # t_next.tau += delta_tau
+        # Loop over timesteps and solve
         for n in range(self.N_time):
             self.t_fl = float(self.t_next(0.0))
             problem = NonlinearVariationalProblem(Fun, self.w, self.bcs, jacobian)
@@ -689,13 +628,14 @@ class Simulation:
             # Solve
             solver.solve()
             phi_f.f, E.f, c.f, sigma.f, u_s_new, p_f.f, v_, a_f = self.w.split(deepcopy=True)
+
+            # Record responses
             _, phi_f_arr = self.fenics_to_numpy(phi_f.f)
             self.a_list.append(a_f(0.0))
+            self.v.val = v_(0.0)
+            v_list.append(float(self.v(0.0)))
 
-            self._Q_f.val = v_(0.0)
-            Q_f_list.append(float(self._Q_f(0.0)))
-            # c_right_list.append(float(fenics_to_numpy(mesh, c.f)[1][-1]))
-            # Update some variables
+            # Update timesteps
             self.t.tau += self.delta_tau
             self.t_next.tau += self.delta_tau
             t_list.append(float(self.t(0.0)))
@@ -706,38 +646,44 @@ class Simulation:
             avgs_dict["E"].append(E.get_average())
             avgs_dict["c"].append(c.get_average())
 
-            # v_s_.f = get_vs_from_E_phi(mesh, phi_f.f, E.f, a_list, phi_f0_num, nu_num,
-            #                            t_v_num, t_v_s_num, t_phi_num, delta_t_fl)
-            v_s_.f = self.get_vs_from_u_phi(phi_f.f, u_s_new, u_s.f, delta_t_fl)
+            v_s.f = self.get_vs_from_u_phi(phi_f.f, u_s_new, u_s.f, delta_t_fl)
             self.w_old.assign(self.w)
 
             # Change coordinates onto the fixed domain for plotting
             (phi_f.plotting_f, E.plotting_f, c.plotting_f, sigma.plotting_f,
-             u_s.plotting_f, p_f.plotting_f, v_s_.plotting_f) = self.xi_t_to_x_t(self.a_list[-1], phi_f, E,
-                                                                                 c, sigma, u_s, p_f, v_s_)
+             u_s.plotting_f, p_f.plotting_f, v_s.plotting_f) = self.xi_t_to_x_t(self.a_list[-1], phi_f, E,
+                                                                                 c, sigma, u_s, p_f, v_s)
 
-            # plot at the current timepoint if needed
             if phi_f.plotting_f[-1] < 0.0:
                 phi_f.plotting_f[-1] = 0.0
-            phi_r = phi_f.plotting_f[-1]
             u_s.f = u_s_new
 
+            # Checking for pore closure on the left
             phi_l = self.fenics_to_numpy(phi_f.f)[1][0]
             if phi_l < 0.0:
                 print("Porosity on the left has reached zero, exiting...")
                 break
+
+            # Updating boundary conditions if necessary
             bc_left_phi = DirichletBC(self.V.sub(0), self.get_phi_bc(self.sigma_l_num, E.f), self.markers, 1)
             self.bcs[0] = bc_left_phi
             phi_r = self.get_phi_bc(self.sigma_l_num - self.Delta_p_num, E.f, _left=False)
             bc_right_phi = DirichletBC(self.V.sub(0), phi_r, self.markers, 2)
             self.bcs[1] = bc_right_phi
 
+            # Checking for pore closure on the right
             if phi_r < 0.0:
                 print("Porosity on the right has reached zero, exiting...")
                 phi_r_list.append(0.0)
+                if self.plot_coord == "X":
+                    self.set_X_mesh(u_s.f)
+                # If we have pore closure, plot final timepoint and exit the loop
+                Quantity.plot_quantities(self.plotting_quants, self.norm, self.t_fl, self.saving,
+                                         plot_coord=self.plot_coord)
                 break
             phi_r_list.append(phi_r)
             if (n + 1) % self.plotting_freq == 0:
+                # Plot at the current timepoint if needed
                 if self.plot_coord == "X":
                     self.set_X_mesh(u_s.f)
                 Quantity.plot_quantities(self.plotting_quants, self.norm, self.t_fl, self.saving,
@@ -751,7 +697,7 @@ class Simulation:
 
         # Creating np arrays for later
         self.times = np.array(t_list)
-        self.Q_f_arr = np.array(Q_f_list)
+        self.v_arr = np.array(v_list)
         self.phi_f_avg_arr = np.array(avgs_dict["phi_f"])
         self.E_avg_arr = np.array(avgs_dict["E"])
         self.c_avg_arr = np.array(avgs_dict["c"])
@@ -759,24 +705,25 @@ class Simulation:
 
     def assign_t1_functions(self, t1_solns: dict):
         """If we have an early-time similarity solution, we use this solution as our
-        initial guess.
+        initial guess. We must convert numpy indexing into FEniCS indexing to assign
+        the early-time solutions to FEniCS functions.
 
         :param t1_solns: A dictionary containing solutions at the first timestep.
         """
         all_names = list(self.old_fn_dict.keys())
         w_old_vector = self.w_old.sub(0).vector()
-        # Awful code below as FEniCS and numpy do not have compatible indexing
+        # Unfortunate code below as FEniCS and numpy do not have compatible indexing
         # and FEniCS does not have a workable alternative. But it works.
         phi_f_arr_rev = np.flip(t1_solns["phi_f"])
         u_s_arr_rev = np.flip(t1_solns["u_s"])
         w_old_vector[0], w_old_vector[1] = phi_f_arr_rev[0], phi_f_arr_rev[1]
         w_old_vector[5], w_old_vector[10] = u_s_arr_rev[0], u_s_arr_rev[1]
         step = len(all_names) - 2
-        for i in range(2, 1001):
+        for i in range(2, self.N_x + 1):
             w_old_vector[step * i] = phi_f_arr_rev[i]
             w_old_vector[step * i + 4] = u_s_arr_rev[i]
-        w_old_vector[6006] = t1_solns["v"]
-        w_old_vector[6007] = t1_solns["a"]
+        w_old_vector[6 * (self.N_x + 1)] = t1_solns["v"]
+        w_old_vector[6 * (self.N_x + 1) + 1] = t1_solns["a"]
         # Move the timesteps forward
         self.t.tau += self.delta_tau
         self.t_next.tau += self.delta_tau
@@ -787,18 +734,18 @@ class Simulation:
 
         # Set up the colorbars and label the plots
         Quantity.annotate_plots(self.plotting_quants, self.fig, self.norm, self.plot_coord_tex)
-
         # Check plot directory exists
         if not os.path.exists(self.plot_path):
             os.makedirs(self.plot_path)
         # Save figure
-        self.fig.savefig(f"{self.plot_path}/_time_traces_{self.plot_coord}.png", bbox_inches="tight")
+        self.fig.savefig(f"{self.plot_path}/__time_traces_{self.plot_coord}.png", bbox_inches="tight")
 
     def plot_responses(self):
-        # Create figure for the imposed velocity and left boundary over time
+        """Create figure for the imposed velocity and left boundary over time
+        """
         fig_Q_a, axs_Q_a = plt.subplots(nrows=2, ncols=1, figsize=(8, 20 / 3), sharex=True)
         ax_Q, ax_a = axs_Q_a
-        ax_Q.plot(self.times[1:], np.array(self.Q_f_arr[1:]), lw=2,
+        ax_Q.plot(self.times[1:], np.array(self.v_arr[1:]), lw=2,
                   color='forestgreen')
         ax_Q.set_ylabel("$v(t)$")
         ax_Q.set_xscale("log")
@@ -810,6 +757,8 @@ class Simulation:
         fig_Q_a.savefig(f"{self.plot_path}/Q_a.png", bbox_inches="tight")
 
     def plot_t_tau(self):
+        """Create figure of how the timepoints vary against the parameter tau.
+        """
         fig_tau, ax_tau = plt.subplots(nrows=1, ncols=1, figsize=(8, 10 / 3))
         ax_tau.plot(np.linspace(0, self.N_time * self.delta_tau, len(self.times)), self.times, lw=2,
                     color='darkviolet')
@@ -819,7 +768,8 @@ class Simulation:
         fig_tau.savefig(f"{self.plot_path}/tau.png", bbox_inches="tight")
 
     def plot_averages(self):
-        # Create figure for various averages over time
+        """Create figure for various averages over time
+        """
         fig_avgs, ax_all = plt.subplots(figsize=(8, 3))
 
         # Plot E_avg, c_avg and phi_r over time on the same axis
@@ -837,9 +787,11 @@ class Simulation:
         fig_avgs.savefig(f"{self.plot_path}/averages.png", bbox_inches="tight")
 
     def save_responses_and_averages(self):
+        """Saving time-dependent variables to a .csv file.
+        """
         if self.saving[0]:
             # Save various time-dependent variables to a dataframe
-            response_df = pd.DataFrame({"Time": self.times, "a": np.array(self.a_list), "v": self.Q_f_arr,
+            response_df = pd.DataFrame({"Time": self.times, "a": np.array(self.a_list), "v": self.v_arr,
                                         "phi_f_bar": self.phi_f_avg_arr, "E_bar": self.E_avg_arr,
                                         "c_bar": self.c_avg_arr, "phi_r": self.phi_fr_arr})
             response_df.to_csv(f"{self.data_path}/_responses.csv")

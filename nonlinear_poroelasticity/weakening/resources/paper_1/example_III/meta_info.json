@@ -2,16 +2,16 @@
   "trial_params": {
     "num_trials": 3,
     "parent": "phys",
-    "trial": "enzymatic",
+    "trial": "cardiovascular_stent",
     "sub_trials": [
-      "beta_E_1_0",
-      "beta_E_0_1",
-      "beta_E_0_01"
+      "phi_f0_0_5",
+      "phi_f0_0_7",
+      "phi_f0_0_9"
     ],
     "labels": [
-      "$t_{E} = 2.1\\times 10^{3}\\mathrm{s}$",
-      "$t_{E} = 2.1\\times 10^{4}\\mathrm{s}$",
-      "$t_{E} = 2.1\\times 10^{5}\\mathrm{s}$"
+      "$\\phi_{f,0} = 0.5$",
+      "$\\phi_{f,0} = 0.7$",
+      "$\\phi_{f,0} = 0.9$"
     ],
     "linestyles": [
       "dotted",
@@ -20,6 +20,7 @@
     ]
   },
   "quant_params": {
+    "selected_subtrial": 0,
     "num_quants": 3,
     "short_quants": [
       "phi_f",
@@ -32,9 +33,13 @@
       "$c / c^{*}$"
     ],
     "colour_maps": [
-      "Blues",
-      "Purples",
-      "Reds"
+      "inferno_r",
+      "inferno_r",
+      "inferno_r"
+    ],
+    "cmap_bounds": [
+      0.0,
+      1.0
     ]
   },
   "response_params": {
@@ -58,16 +63,15 @@
       "linear",
       "log"
     ],
-    "nrows": 1,
-    "ncols": 3,
+    "nrows": 3,
+    "ncols": 1,
     "figsize": [
-      14,
-      3.333333333
+      6,
+      10
     ]
   },
-  "plot_coord": "X",
-  "plot_coord_tex": "$X / L$",
-  "log_time": "False",
+  "fixed_domain": "False",
+  "log_time": "True",
   "tlabel": "$t / t_E$",
   "avg_params": {
     "names": [
@@ -76,7 +80,7 @@
       "c_bar"
     ],
     "figsize": [
-      12,
+      10,
       3.33333
     ],
     "colours": [

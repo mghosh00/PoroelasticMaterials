@@ -25,8 +25,8 @@ plt.rcParams['text.usetex'] = True
 Reading in our parameters
 """
 parent = "phys"
-trial = "porous_polymer"
-sub_trial = "Delta_p_0_25"
+trial = "enzymatic"
+sub_trial = "c_10_minus_2"
 param_file = open(f"resources/{parent}/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -76,17 +76,6 @@ E = Quantity("$E$", "Greens", 1)
 c = Quantity("$c$", "Purples", 2)
 
 """
-Sorting out the timesteps.
-"""
-# t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
-# t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
-# times = [float(t_expr(0.0))]
-# for n in range(N_time):
-#     t_expr.tau += delta_tau
-#     times.append(float(t_expr(0.0)))
-# times = np.array(times)
-
-"""
 The function for drawing a rectangle for E (creating the poroelastic material
 bit by bit).
 """
@@ -120,10 +109,11 @@ def add_random_solute(_ax: plt.Axes, x: float, _N_x: int, _c: float, colour: str
     """
     radius = 1 / (2 * N_x)
     num_particles = int(_c * 50)
-    for j in range(num_particles):
-        y = random.random()
-        circle = plt.Circle((x, y), radius, facecolor=colour, alpha=0.3)
-        _ax.add_patch(circle)
+    if num_particles > 0:
+        for j in range(num_particles):
+            y = random.random()
+            circle = plt.Circle((x, y), radius, facecolor=colour, alpha=0.3)
+            _ax.add_patch(circle)
 
 
 """
@@ -166,15 +156,16 @@ for n in range(num_frames):
 
     # Label the plot and add a colourbar
     ax.get_yaxis().set_visible(False)
-    ax.set_xlabel("$x / L$")
+    ax.set_xlabel("$x$")
     fig.colorbar(mpl.cm.ScalarMappable(norm=E_norm, cmap=E.cmap),
                  orientation='vertical',
                  label="$E$", ax=ax)
-    ax.set_title(f"$t / t_E = {t}$")
+    ax.set_title(f"$t = {t}$")
 
     # Save figure
     frame_path = f"{plot_path}/frames/frame_{n}.png"
-    fig.savefig(frame_path, bbox_inches="tight")
+    fig.savefig(frame_path, bbox_inches="tight", dpi=400)
+    plt.close()
     image = Image.open(frame_path)
     images.append(image)
     os.remove(frame_path)
@@ -182,4 +173,4 @@ for n in range(num_frames):
 # Make the .gif and delete the frames directory
 images[0].save(f"{plot_path}/_diagram_animation.gif", save_all=True,
                append_images=images[1:], duration=250, loop=0)
-os.rmdir(f"{plot_path}/frames")
+# os.rmdir(f"{plot_path}/frames")

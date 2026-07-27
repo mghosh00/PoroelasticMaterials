@@ -1,45 +1,40 @@
 """
-This Python code solves the following nonlinear, nondimensional general system for the
-porosity, Young's modulus and solute concentration
+This Python code solves a similarity solution problem for the first timepoint/early
+timepoints in the nondimensional weakening model. The system is given by
 
-        \\frac{t_{\\phi}}{[t]}\\frac{D\\phi_{f}}{Dt} = \\phi_{f}\\frac{\\p}{\\p x}
-        \\left[(1 - \\phi_{f})k(\\phi_{f})\\frac{\\p}{\\p x}\\left(E\\g(\\phi_{f})\\right)\\right],
-        \\frac{t_{E}}{[t]}\\frac{D^{s}E}{Dt} = -c\\left(E - E_{\\mathrm{min}}\\right),
-        \\frac{t_{c}}{[t]}\\phi_{f}\\frac{D^{f}c}{Dt} = \\frac{\\p}{\\p x}\\left(
-        \\phi_{f}\\frac{\\p c}{\\p x}\\right),
+        \\left(\\gamma C_v + \\frac{1}{2}\\epsilon\\eta\\right)\\frac{df}{d\\eta} =
+        \\frac{d}{d\\eta}\\left[(f+1-\\phi_{f,0})k(f)\\frac{dg}{d\\eta}\\right],
+        \\frac{dh}{d\\eta}=\\frac{f}{1-\\phi_{f,0}},
 
-where the operators D, D^{f} and D^{s} are the material derivatives for the averaged velocity,
-fluid velocity and solid velocity respectively. These operators are dependent on E, k, g
-(both given functions of the porosity) and v(t), which is the phase-averaged velocity.
+where f = \\phi_f - \\phi_{f,0} represents porosity, h = t^{-1/2}u_s represents displacement.
+The similarity variable \\eta = (1 - x) / \\sqrt{t}. C_v is defined via v = C_v / \\sqrt{t} and
+is an unknown to be solved for. k and g are the permeability and nonlinear strain functions, respectively.
+\\epsilon = t_\\phi / t_E, the ratio of poroelastic relaxation to weakening timescales and \\phi_{f,0} is
+the initial porosity. The equation for determining C_v (which must be solved simultaneously with
+the differential equations) is given by
+
+\\gamma C_v = 1 / L_\\eta \\int_0^{L_\\eta}\\epsilon\\frac{1 - \\phi_{f,0}}{1 - \\phi_{f,0} + f}
+\\left(\\frac{1}{2}h-\\frac{1}{2}\\eta\\frac{dh}{d\\eta}\\right) + k\\frac{dg}{d\\eta}d\\eta,
+
+where L_\\eta is a large number representing the length of the \\eta domain.
 
 The initial conditions are at t = 0:
 
-        \\phi_{f} = \\phi_{f,0} (= const.), E = E_{0}(x), c = c_{0}(x),
+        f = 0, h = 0,
 
-with boundary conditions (on a domain [a(t), 1] with left moving boundary):
+with boundary conditions:
 
-        v_s = \\frac{t_{v_{s}}}{[t]}\\dot{a}(t) at x = a(t), v_s = 0 at x = 1,
-        c = \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} - \\frac{1}{t_{v_{f}}}(c - c_{-\\infty})v_{f} = 0 at x = a(t),
-        \\frac{1}{t_{c}}\\frac{\\p c}{\\p x} = 0 at x = 1,
+        g = -\\gamma at \\eta = 0, f -> 0 as \\eta -> \\infty,
+        h = 0 at \\eta = 0.
 
-The moving boundary can be determined by the following implicit relation:
+The moving boundary, a = C_a t^{1/2}, can be determined by the following integral expression:
 
-        a(t) = \\phi_{f,0} - \\int_{a(t)}^{1}\\phi_{f}(x, t)dx,
-
-given a known profile for \\phi_{f} at the previous timestep (in the numerical scheme).
-We will also change coordinates onto a fixed domain (see details below).
+        C_a = \\frac{1}{1-\\phi_{f,0}}\\int_0^{L_\\eta}f(\\eta)d\\eta.
 
 The timescales are:
 
 t_{\\phi} = \\frac{\\mu L^{2}}{k_{0}E^{*}},
-t_{v_{i}} = \\frac{L}{v_{i}^{*}}, (v_{i} = v, v_{f} or v_{s}),
-t_{E} = \\frac{1}{\\beta_{E}c^{*}},
-t_{c} = \\frac{L^{2}}{\\mathcal{D}_{m}}.
-
-If we wish to have a nonlinear timestep, we will set our real time t = t(\\tau), where
-the function t(\\tau) depends on some parameter \\tau and is defined within the .json
-parameter files. The array of \\tau values will be defined on an array of length
-N_time with constant spacing delta_tau.
+t_{E} = \\frac{1}{\\beta_{E}c^{*}}.
 """
 
 import os
@@ -82,10 +77,6 @@ class SimilaritySolution:
         :param _num_quants: The number of quantities to be solved for.
         :param _plot_xi: Whether we plot arrays in terms of xi or in terms of eta.
         """
-
-        """
-        Computational parameters
-        """
         self.params = _params
 
         # Simulation number (if it exists)
@@ -106,10 +97,6 @@ class SimilaritySolution:
 
         self.plot_coord = "xi" if _plot_xi else "eta"
         self.plot_coord_latex = "$\\xi$" if _plot_xi else "$\\eta$"
-
-        """
-        Define model parameters
-        """
 
         # Length of domain, L
         L = Constant(self.params["phys"]["L"])
@@ -140,7 +127,7 @@ class SimilaritySolution:
         else:
             self.t_v = L / v_star
         t_E = 1 / (beta_E * c_star)
-        self.epsilon_E = t_phi / t_E
+        self.epsilon = t_phi / t_E
 
         self.sigma_l = Constant(self.params["bcs"]["sigma_left"])
         self.gamma = Constant(self.params["bcs"]["Delta p"])
@@ -148,7 +135,7 @@ class SimilaritySolution:
         self.x = Expression('x[0]', degree=1)
 
         self.phi_f0_num, self.nu_num = self.nums(self.phi_f0, self.nu)
-        self.epsilon_E_num, self.gamma_num = self.nums(self.epsilon_E, self.gamma)
+        self.epsilon_num, self.gamma_num = self.nums(self.epsilon, self.gamma)
         self.sigma_l_num = self.nums(self.sigma_l)[0]
 
         # Creating file paths
@@ -243,18 +230,6 @@ class SimilaritySolution:
         denominator = 2 * (1 + self.nu_num) * (1 - 2 * self.nu_num)
         return (term1 + term2 + term3) / denominator
 
-    def compute_dg_df(self, _f):
-        """Computes the derivative of g as a function of the porosity.
-
-        :param _f: The effective porosity.
-        :return: The effective stress.
-        """
-        phi_f = self.phi_f0_num - _f
-        term1 = (1 - self.phi_f0_num) / (1 - phi_f) ** 2
-        term2 = 1 - 2 * self.nu_num / (1 - self.phi_f0_num)
-        denominator = 2 * (1 + self.nu_num) * (1 - 2 * self.nu_num)
-        return - (term1 + term2) / denominator
-
     def get_f_bc(self, _sigma_xx):
         """Finds the value of f at a point given sigma.
 
@@ -344,14 +319,14 @@ class SimilaritySolution:
         """
 
         # Weak form for the phi equation (f)
-        Fun_f = (((self.gamma * v / self.L_eta + 1/2 * self.epsilon_E * self.eta) * f.v).dx(0) * f.u * dx -
+        Fun_f = (((self.gamma * v / self.L_eta + 1/2 * self.epsilon * self.eta) * f.v).dx(0) * f.u * dx -
                    ((f.u + 1 - self.phi_f0) * k * dg_deta) * f.v.dx(0) / self.L_eta * dx)
 
         # Weak form for the displacement, h
         Fun_h = (h.u.dx(0) / self.L_eta - f.u / (1 - self.phi_f0)) * h.v * dx
 
         # Weak form for the phase-averaged velocity
-        Fun_v = (self.gamma * v - self.epsilon_E * (1 - self.phi_f0) / (1 - self.phi_f0 + f.u) *
+        Fun_v = (self.gamma * v - self.epsilon * (1 - self.phi_f0) / (1 - self.phi_f0 + f.u) *
                  (h.u - self.eta * h.u.dx(0)) / 2 - k * dg_deta) * v_v * dx
 
         # Weak form for the moving boundary
@@ -386,7 +361,7 @@ class SimilaritySolution:
             self.convert_to_xi(f.f, h.f)
         self.a_num = float(a_f(0.0))
         self.v_num = float(v_(0.0))
-        print(f"a*: {self.a_num}, v0: {self.v_num}")
+        print(f"C_a: {self.a_num}, C_v: {self.v_num}")
 
         self.norm = mpl.colors.Normalize(vmin=0.0, vmax=1.0)
         Quantity.plot_quantities(self.plotting_quants, self.norm, 1.0, self.saving)
@@ -410,10 +385,10 @@ class SimilaritySolution:
         self.phi_f.f = phi_f_arr
         self.u_s.f = u_s_arr
 
-    def save_responses(self):
+    def save_responses(self, filename="ess_responses.csv"):
         """Saves the numbers a and v to a small .csv file.
         """
-        responses_file = f"{self.data_path}/ess_responses.csv"
+        responses_file = f"{self.data_path}/{filename}"
         responses_df = pd.DataFrame({"a": [self.a_num / self.L_eta], "v": [self.v_num * self.L_eta]})
         responses_df.to_csv(responses_file)
 

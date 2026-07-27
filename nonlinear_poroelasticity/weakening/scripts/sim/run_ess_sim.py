@@ -16,8 +16,8 @@ plt.rcParams['text.usetex'] = True
 Reading in our parameters
 """
 parent = "phys"
-trial = "porous_polymer"
-sub_trial = "Delta_p_0_25_phif0_0_4"
+trial = "enzymatic"
+sub_trial = "c_10_minus_2"
 middle_path = f"{parent}/{trial}/{sub_trial}"
 param_file = open(f"resources/{middle_path}/params_eta.json")
 params = json.load(param_file)

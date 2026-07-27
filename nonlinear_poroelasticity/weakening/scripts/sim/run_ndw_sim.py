@@ -13,12 +13,10 @@ mpl.rcParams.update(mpl.rcParamsDefault)
 mpl.rcParams.update({'font.size': 18})
 plt.rcParams['text.usetex'] = True
 
-"""
-Reading in our parameters
-"""
+# Reading in our parameters
 parent = "phys"
-trial = "porous_polymer"
-sub_trial = "Delta_p_0_1"
+trial = "enzymatic"
+sub_trial = "c_10_minus_2"
 middle_path = f"{parent}/{trial}/{sub_trial}"
 param_file = open(f"resources/{middle_path}/params.json")
 params = json.load(param_file)
@@ -44,6 +42,8 @@ ess_dict = {early_quant: pd.read_csv(f"resources/{middle_path}/data/ess_{early_q
             .to_numpy()[:, 1] for early_quant in ["phi_f", "u_s"]}
 responses_arr = pd.read_csv(f"resources/{middle_path}/data/ess_responses.csv", index_col=0).to_numpy()
 ess_dict["a"], ess_dict["v"] = responses_arr[0, 0], responses_arr[0, 1]
+
+# Solve system starting from early-time similarity solution and plot and save the data
 sim.solve(ess_dict)
 sim.plot_traces()
 sim.plot_responses()

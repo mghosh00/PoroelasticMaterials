@@ -1,30 +1,27 @@
 {
   "trial_params": {
-    "num_trials": 4,
+    "num_trials": 3,
     "parent": "phys",
     "trial": "porous_polymer",
     "sub_trials": [
-      "gamma_0_1_phi_f0_0_6",
-      "gamma_0_2_phi_f0_0_6",
-      "gamma_0_1_phi_f0_0_5",
-      "gamma_0_2_phi_f0_0_5"
+      "gamma_0_2_phi_f0_0_5_reac",
+      "gamma_0_2_phi_f0_0_5_close_valve",
+      "gamma_0_5_phi_f0_0_5_close_valve"
     ],
     "labels": [
-      "$\\phi_{f,0} = 0.6, \\gamma = 0.1$",
-      "$\\phi_{f,0} = 0.6, \\gamma = 0.2$",
-      "$\\phi_{f,0} = 0.5, \\gamma = 0.1$",
-      "$\\phi_{f,0} = 0.5, \\gamma = 0.2$"
+      "$\\gamma = 0.2$",
+      "$\\gamma = 0.2$, closing valve",
+      "$\\gamma = 0.5$, closing valve"
     ],
     "linestyles": [
-      "dotted",
-      "dashdot",
-      "dashed",
+      "solid",
+      "solid",
       "solid"
     ]
   },
   "quant_params": {
     "num_quants": 3,
-    "selected_subtrial": 3,
+    "selected_subtrial": 1,
     "short_quants": [
       "phi_f",
       "c",
@@ -49,30 +46,6 @@
       13
     ]
   },
-  "response_params": {
-    "var_names": [
-      "a",
-      "v"
-    ],
-    "latex_var_names": [
-      "$a$",
-      "$v$"
-    ],
-    "colours": [
-      "darkgoldenrod",
-      "forestgreen"
-    ],
-    "yscales": [
-      "linear",
-      "log"
-    ],
-    "nrows": 3,
-    "ncols": 1,
-    "figsize": [
-      5,
-      13
-    ]
-  },
   "plot_coord": "X",
   "plot_coord_tex": "$X$",
   "log_time": "True",
@@ -84,8 +57,8 @@
       "E_bar"
     ],
     "figsize": [
-      10,
-      3.33333
+      5,
+      13
     ],
     "colours": [
       "mediumblue",
@@ -96,7 +69,7 @@
       "$\\overline{\\phi_{f}}$",
       "$\\overline{c}$",
       "$\\overline{E}$"
-    ]
-  },
-  "avg_and_resp": 1
+    ],
+    "log_time_avg": 1
+  }
 }
