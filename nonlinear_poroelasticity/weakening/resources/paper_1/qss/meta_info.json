@@ -1,0 +1,44 @@
+{
+  "trial_params": {
+    "num_trials": 2,
+    "parent": "nonphys",
+    "trial": "qss",
+    "sub_trials": [
+      "phi_f0_0_5_gamma_0_1",
+      "phi_f0_0_5_gamma_0_2"
+    ],
+    "vertical": 1,
+    "labels": [
+      "$\\phi_{f,0} = 0.5, \\gamma = 0.1$",
+      "$\\phi_{f,0} = 0.5, \\gamma = 0.2$"
+    ],
+    "linestyles": [
+      "dotted",
+      "dashdot"
+    ]
+  },
+  "quant_params": {
+    "num_quants": 1,
+    "short_quants": [
+      "phi_f"
+    ],
+    "latex_quants": [
+      "$\\phi_{f}$"
+    ],
+    "colour_maps": [
+      "inferno_r"
+    ],
+    "cmap_bounds": [
+      0.1,
+      1.0
+    ],
+    "figsize": [
+      6,
+      6.66
+    ]
+  },
+  "plot_coord": "X",
+  "plot_coord_tex": "$X$",
+  "log_time": "False",
+  "tlabel": "$t$"
+}

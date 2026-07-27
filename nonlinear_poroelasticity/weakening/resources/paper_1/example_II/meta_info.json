@@ -1,0 +1,103 @@
+{
+  "trial_params": {
+    "num_trials": 4,
+    "parent": "phys",
+    "trial": "enzymatic",
+    "sub_trials": [
+      "c_10_minus_5",
+      "c_10_minus_4",
+      "c_10_minus_3",
+      "c_10_minus_2"
+    ],
+    "resp_log_trials": 1,
+    "labels": [
+      "$\\epsilon = 0.038$",
+      "$\\epsilon = 0.38$",
+      "$\\epsilon = 3.8$",
+      "$\\epsilon = 38$"
+    ],
+    "linestyles": [
+      "solid",
+      "dashed",
+      "dashdot",
+      "dotted"
+    ]
+  },
+  "log_time": "False",
+  "quant_params": {
+    "num_quants": 3,
+    "selected_subtrial": 3,
+    "short_quants": [
+      "c",
+      "E",
+      "phi_f"
+    ],
+    "latex_quants": [
+      "$c$",
+      "$E$",
+      "$\\phi_{f}$"
+    ],
+    "colour_maps": [
+      "inferno_r",
+      "inferno_r",
+      "inferno_r"
+    ],
+    "cmap_bounds": [
+      0.1,
+      1.0
+    ],
+    "figsize": [
+      4,
+      10
+    ]
+  },
+  "response_params": {
+    "var_names": [
+      "a",
+      "v"
+    ],
+    "latex_var_names": [
+      "$a$",
+      "$v$"
+    ],
+    "colours": [
+      "darkgoldenrod",
+      "forestgreen"
+    ],
+    "yscales": [
+      "linear",
+      "log"
+    ],
+    "nrows": 2,
+    "ncols": 1,
+    "figsize": [
+      6,
+      10
+    ],
+    "log_time": "True"
+  },
+  "plot_coord": "X",
+  "plot_coord_tex": "$X$",
+  "tlabel": "$t$",
+  "avg_params": {
+    "names": [
+      "c_bar",
+      "E_bar",
+      "phi_f_bar"
+    ],
+    "figsize": [
+      12,
+      3.33333
+    ],
+    "colours": [
+      "red",
+      "indigo",
+      "mediumblue"
+    ],
+    "latex_labels": [
+      "$\\overline{c}$",
+      "$\\overline{E}$",
+      "$\\overline{\\phi_{f}}$"
+    ]
+  }
+}
