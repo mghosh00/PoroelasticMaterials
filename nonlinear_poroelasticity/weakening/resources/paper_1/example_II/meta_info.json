@@ -1,36 +1,41 @@
 {
   "trial_params": {
-    "num_trials": 3,
+    "num_trials": 4,
     "parent": "phys",
-    "trial": "porous_polymer",
+    "trial": "enzymatic",
     "sub_trials": [
-      "Delta_p_0_1",
-      "Delta_p_0_25",
-      "Delta_p_0_5"
+      "c_10_minus_5",
+      "c_10_minus_4",
+      "c_10_minus_3",
+      "c_10_minus_2"
     ],
+    "resp_log_trials": 1,
     "labels": [
-      "$\\Delta p / E_0 = 0.1$",
-      "$\\Delta p / E_0 = 0.25$",
-      "$\\Delta p / E_0 = 0.5$"
+      "$\\epsilon = 0.038$",
+      "$\\epsilon = 0.38$",
+      "$\\epsilon = 3.8$",
+      "$\\epsilon = 38$"
     ],
     "linestyles": [
-      "dotted",
+      "solid",
       "dashed",
-      "solid"
+      "dashdot",
+      "dotted"
     ]
   },
+  "log_time": "False",
   "quant_params": {
     "num_quants": 3,
-    "selected_subtrial": 1,
+    "selected_subtrial": 3,
     "short_quants": [
-      "phi",
+      "c",
       "E",
-      "c"
+      "phi_f"
     ],
     "latex_quants": [
-      "$\\phi_{f}$",
-      "$E / E_0$",
-      "$c / c^{*}$"
+      "$c$",
+      "$E$",
+      "$\\phi_{f}$"
     ],
     "colour_maps": [
       "inferno_r",
@@ -38,60 +43,61 @@
       "inferno_r"
     ],
     "cmap_bounds": [
-      0.0,
+      0.1,
       1.0
+    ],
+    "figsize": [
+      4,
+      10
     ]
   },
   "response_params": {
     "var_names": [
       "a",
-      "v",
-      "phi_r"
+      "v"
     ],
     "latex_var_names": [
-      "$a/L$",
-      "$v/v^{*}$",
-      "$\\phi_{r}$"
+      "$a$",
+      "$v$"
     ],
     "colours": [
       "darkgoldenrod",
-      "forestgreen",
-      "mediumblue"
+      "forestgreen"
     ],
     "yscales": [
       "linear",
-      "log",
-      "linear"
+      "log"
     ],
-    "nrows": 3,
+    "nrows": 2,
     "ncols": 1,
     "figsize": [
       6,
       10
-    ]
+    ],
+    "log_time": "True"
   },
-  "fixed_domain": "False",
-  "log_time": "True",
-  "tlabel": "$t / t_E$",
+  "plot_coord": "X",
+  "plot_coord_tex": "$X$",
+  "tlabel": "$t$",
   "avg_params": {
     "names": [
-      "phi_f_bar",
+      "c_bar",
       "E_bar",
-      "c_bar"
+      "phi_f_bar"
     ],
     "figsize": [
-      10,
+      12,
       3.33333
     ],
     "colours": [
-      "mediumblue",
+      "red",
       "indigo",
-      "red"
+      "mediumblue"
     ],
     "latex_labels": [
-      "$\\overline{\\phi_{f}}$",
-      "$\\overline{E}/E_0$",
-      "$\\overline{c}/c^{*}$"
+      "$\\overline{c}$",
+      "$\\overline{E}$",
+      "$\\overline{\\phi_{f}}$"
     ]
   }
 }

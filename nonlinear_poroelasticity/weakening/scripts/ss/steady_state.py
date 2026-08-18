@@ -7,10 +7,6 @@ import numpy as np
 import scipy.integrate as si
 import scipy.optimize as so
 
-# From steady state analysis, once E -> E_min, we can determine phi_f, a and
-# c. We must solve for phi_f and a simultaneously to determine an integration
-# constant, B. c can then be recovered.
-
 
 class SteadyState:
     """A class to calculate the steady state of a system.
@@ -34,26 +30,40 @@ class SteadyState:
         self.k_0 = params["scales"]["k"]
         self.E_star = params["scales"]["E"]
         self.v_star = params["scales"]["v"]
+        if "c_left" in params["bcs"]:
+            self.c_left = params["bcs"]["c_left"]
 
-        self.Q_f = params["Q_f"]["Q_f_final"]
+        # # Whether we close the valve once c reaches its steady state or not
+        # self.close_valve = params["close_valve"] if "close_valve" in params else 0
+        # # If we close the valve, the steady state value E_min changes, so we apply this change here
+        # if self.close_valve:
+        #     self.E_final = self.E_min + (1 - self.E_min) / np.e
+        # else:
+        #     self.E_final = self.E_min
 
-        self.c_left = params["bcs"]["c_left"]
+        self.E_final = self.E_min
         self.sigma_l = params["bcs"]["sigma_left"]
-        self.phi_l = self.get_phi_l()
+        self.phi_l = self.get_phi(self.sigma_l)
 
         self.t_phi = (self.mu * self.L ** 2) / (self.k_0 * self.E_star)
         self.t_v = self.L / self.v_star
         self.t_c = self.L ** 2 / self.D_m
-        self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_min * (1 - self.phi_f0))
+        if "Q_f" in params:
+            self.Q_f = params["Q_f"]["Q_f_final"]
+            self.fluid_flux = True
+            self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_final * (1 - self.phi_f0))
+        else:
+            self.Delta_p = params["bcs"]["Delta p"]
+            self.fluid_flux = False
 
         self.xi = xi
 
-    def get_phi_l(self):
-        """Finds the value of phi_f on the left.
+    def get_phi(self, sigma):
+        """Finds the value of phi_f given a stress sigma.
 
-        :return: The value of the porosity on the left.
+        :return: The value of the porosity.
         """
-        b = 2 * (1 + self.nu) * (1 - 2 * self.nu) * self.sigma_l / self.E_min + 2 * self.nu
+        b = 2 * (1 + self.nu) * (1 - 2 * self.nu) * sigma / self.E_final + 2 * self.nu
         discriminant = b ** 2 + 4 * (1 - 2 * self.nu)
         multiplier = (1 - self.phi_f0) / (2 * (1 - 2 * self.nu))
         return 1 - multiplier * (discriminant ** (1 / 2) - b)
@@ -115,7 +125,7 @@ class SteadyState:
         phi_r = 0 in the steady state. This will likely not be the gamma used in the
         simulation.
         """
-        numerator = self.E_min
+        numerator = self.E_final
         denominator = self.phi_f0 ** 3 * self.Q_f * 2 * (1 + self.nu) * (1 - 2 * self.nu)
         term1 = self._F_phi_r_inner(1, self.phi_f0, self.nu)
         term2 = self._F_phi_r_inner(1 - self.phi_l, self.phi_f0, self.nu)
@@ -177,49 +187,21 @@ class SteadyState:
         term2 = self.inner_expr_for_a(1 - self.phi_l)
         return self.phi_f0 + (term1 - term2) / (self.factor * denominator)
 
-    def solve_iterative(self, phi_f_guess: np.array, max_its: float = 100):
-        """If we wish to use the iterative method to solve for phi_f, a and B, then
-        we call this method. This has an initial guess for the porosity and then
-        uses this to guess a and B and then a new guess for phi_f. This process iterates
-        until the phi_f profile ceases to change above a certain tolerance.
-
-        :param phi_f_guess: Initial guess for porosity.
-        :param max_its: The maximum number of iterations.
-        :return: The steady state for phi_f, a and B as a tuple.
-        """
-        # Pre-calculated error requirement (and going one order of magnitude lower)
-        tol = 1e-7 * self.N_x
-        i = 0
-        while True:
-            print(f"Iteration {i}")
-            a_guess = self.calculate_a(phi_f_guess)
-            print(f"a_{i}: {a_guess}")
-            B_guess = self.calculate_B(a_guess)
-            print(f"B_{i}: {B_guess}")
-            phi_f_guess_new = self.calculate_phi(a_guess, B_guess)
-            sum_squares = ((phi_f_guess_new - phi_f_guess) ** 2).sum()
-            print(f"sum_sq_{i}: {sum_squares}")
-            phi_f_guess = phi_f_guess_new
-            # print(f"phi_f_{i}: {_phi_f_guess}")
-            if sum_squares < tol or i == max_its:
-                phi_f_ss = phi_f_guess
-                a_ss = a_guess
-                B_ss = B_guess
-                if i == max_its:
-                    print(f"Maximum iterations reached ({max_its})")
-                break
-            i += 1
-        return phi_f_ss, a_ss, B_ss
-
     def solve_analytic(self):
         """Finds the steady state array for phi_f, the value of the left boundary
         and the constant B analytically.
 
         :return: The steady state for phi_f, a and B as a tuple.
         """
-        phi_r = so.fsolve(SteadyState._F_phi_r, self.phi_f0,
-                          args=(self.phi_l, self.phi_f0, self.nu, self.factor))[0]
-        if self.factor > 0.0:
+        if self.fluid_flux:
+            phi_r = so.fsolve(SteadyState._F_phi_r, self.phi_f0,
+                              args=(self.phi_l, self.phi_f0, self.nu, self.factor))[0]
+        else:
+            phi_r = self.get_phi_r_pressure_drop()
+        if np.isnan(phi_r):
+            phi_f_ss = np.empty(self.N_x + 1)
+            phi_f_ss[:], a_ss, B_ss = np.nan, np.nan, np.nan
+        elif self.factor > 0.0:
             a_ss = self.calculate_a_alt(float(phi_r))
             B_ss = self.calculate_B(a_ss)
             phi_f_ss = self.calculate_phi(a_ss, B_ss)
@@ -229,43 +211,47 @@ class SteadyState:
             a_ss = self.calculate_a(phi_f_ss)
         return phi_f_ss, a_ss, B_ss
 
-    def calculate_c(self, phi_f: np.array, a: float):
-        """Calculates the steady state value for c given the porosity.
+    def get_phi_r_pressure_drop(self):
+        """Finds the value for phi_r with an imposed pressure drop
+        and finds the steady state value of v, to be used in factor.
 
-        :param phi_f: The porosity array.
-        :param a: The left boundary.
-        :return: The predicted steady state profile for the solute concentration.
+        :return: The steady state for phi_r
         """
-        dxi = self.xi[1] - self.xi[0]
-        exponent_list = []
-        for i in range(len(self.xi)):
-            integral_i = si.simpson((1 - a) / phi_f[:i + 1], self.xi[:i + 1], dx=dxi)
-            exponent_list.append(integral_i)
-        exponent = np.array(exponent_list) * self.t_c / self.t_v * self.Q_f
-        return self.c_left * np.exp(exponent)
+        phi_r = self.get_phi(self.sigma_l - self.Delta_p)
+        v_ss = self.calculate_v(phi_r)
+        self.update_factor(v_ss)
+        phi_r = np.nan if phi_r < 0 else phi_r
+        return phi_r
 
-    def calculate_u_s(self, phi_f: np.array, a: float):
-        """Calculates the steady state for the displacement given the porosity
-        and left boundary.
+    def calculate_v(self, phi_r):
+        """Calculates the phase-averaged velocity given the porosity on the right.
 
-        :param phi_f: Steady state porosity profile.
-        :param a: Left boundary.
+        :param phi_r: The porosity on the right.
+        :return: The phase-averaged velocity in the steady state.
         """
-        multiplier = (1 - a) / (1 - self.phi_f0)
-        dxi = self.xi[1] - self.xi[0]
-        integral_list = []
-        for i in range(len(self.xi)):
-            integral_i = si.simpson(phi_f[:i + 1], self.xi[:i + 1], dx=dxi)
-            integral_list.append(integral_i)
-        integral_arr = np.array(integral_list)
-        return multiplier * (integral_arr - self.phi_f0 * self.xi) + a
-
-    def alternative_B(self):
-        """A potential alternative method for calculating B.
-
-        :return: An alternative way of calculating B.
-        """
+        multiplier = (self.E_final * self.t_v / (self.phi_f0 ** 3 * self.t_phi)
+                      if self.phi_f0 != 0 else 1e32)
         denominator = 2 * (1 + self.nu) * (1 - 2 * self.nu)
-        term2 = 11 / 6 * (1 - self.phi_f0) ** 2
-        term3 = - 3 / 2 * (1 - 2 * self.nu)
-        return self.factor + (term2 + term3) / denominator
+        term1 = self._F_phi_r_inner((1 - phi_r), self.phi_f0, self.nu)
+        term2 = self._F_phi_r_inner((1 - self.phi_f0), self.phi_f0, self.nu)
+        return multiplier / denominator * (term1 - term2)
+
+    def update_factor(self, v):
+        """Updates the phase-averaged velocity in factor.
+
+        :param v: New phase-averaged velocity.
+        """
+        self.Q_f = v
+        self.factor = (self.t_phi * self.Q_f * self.phi_f0 ** 3) / (self.t_v * self.E_final * (1 - self.phi_f0))
+
+    def get_alpha_min(self):
+        """Calculates the alpha_min parameter, which determines whether the
+        steady state is physical or not. If alpha_min > 1, a steady state
+        is attainable. Otherwise, it is not.
+
+        :return: alpha_min.
+        """
+        numerator = self.E_min * self.phi_f0 * (2 * (1 - self.nu) - self.phi_f0)
+        denominator = self.Delta_p * 2 * (1 - self.phi_f0) * (1 + self.nu) * (1 - 2 * self.nu)
+        alpha_min = numerator / denominator if denominator != 0 else 1e32
+        return alpha_min

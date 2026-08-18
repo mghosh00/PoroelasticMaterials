@@ -1,0 +1,50 @@
+{
+  "trial": "enzymatic",
+  "Q_": {
+    "name": "beta_E_0_1",
+    "expr": "0.1",
+    "expr_old": "0.0",
+    "Q_f_final": 1.0
+  },
+  "comp": {
+    "delta_tau": 0.1,
+    "N_time": 300,
+    "N_x": 1000,
+    "t(tau)": "tau <= 0.2 ? tau / 10 : tau",
+    "t(tau": "0.01 * exp(8 * (tau - 0.01))",
+    "log_time ": "True"
+  },
+  "phys": {
+    "L": 2e-3,
+    "beta_E": 0.0118,
+    "E_min": 0.7,
+    "D_m": 1.57e-10,
+    "nu": 0.3,
+    "mu": 1e-3
+  },
+  "scales": {
+    "t": 2.07e4,
+    "k": 3.13e-19,
+    "c": 4.1e-3,
+    "E": 1.57e5,
+    "v": 2.45e-8,
+    "v_f": 2.45e-8,
+    "v_s": 2.45e-8
+  },
+  "ics": {
+    "phi_f": 0.5,
+    "E": 1.0,
+    "c": 0.0,
+    "u_s": 0.0,
+    "a": 0.0,
+    "v": 1e4
+  },
+  "bcs": {
+    "u_s_right": 0.0,
+    "sigma_left": 0.0,
+    "Delta p": 0.5,
+    "p_f_right": 0.0,
+    "c_plus": 0.0,
+    "c_minus": 1.0
+  }
+}

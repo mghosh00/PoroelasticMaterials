@@ -26,7 +26,7 @@ Reading in our parameters
 """
 parent = "phys"
 trial = "enzymatic"
-sub_trial = "dex_ma_30ww"
+sub_trial = "c_10_minus_2"
 param_file = open(f"resources/{parent}/{trial}/{sub_trial}/params.json")
 params = json.load(param_file)
 
@@ -62,9 +62,11 @@ plot_path = f"resources/{parent}/{trial}/{sub_trial}/plots"
 file_names = [f"{data_path}/_{q}_x.csv" for q in short_quants]
 data_dict = {}
 for i, name in enumerate(short_quants):
-    data_arr = pd.read_csv(file_names[i]).to_numpy()
-    coord_arr = data_arr[:, 1]
-    quant_arr_nan = data_arr[:, 2:]
+    data_arr = pd.read_csv(file_names[i], header=None).to_numpy()
+    times = np.array(data_arr[0, 2:], dtype=float)
+    times[0] = 0.0
+    coord_arr = np.array(data_arr[1:, 1], dtype=float)
+    quant_arr_nan = np.array(data_arr[1:, 2:], dtype=float)
     data_dict[name] = quant_arr_nan
 
 """
@@ -72,17 +74,6 @@ Preparing the data.
 """
 E = Quantity("$E$", "Greens", 1)
 c = Quantity("$c$", "Purples", 2)
-
-"""
-Sorting out the timesteps.
-"""
-t_tau = params["comp"]["t(tau)"] if "t(tau)" in params["comp"] else "tau"
-t_expr = Expression(t_tau, degree=1, tau=0.0, delta_tau=delta_tau, N_time=N_time)
-times = [float(t_expr(0.0))]
-for n in range(N_time):
-    t_expr.tau += delta_tau
-    times.append(float(t_expr(0.0)))
-times = np.array(times)
 
 """
 The function for drawing a rectangle for E (creating the poroelastic material
@@ -118,10 +109,11 @@ def add_random_solute(_ax: plt.Axes, x: float, _N_x: int, _c: float, colour: str
     """
     radius = 1 / (2 * N_x)
     num_particles = int(_c * 50)
-    for j in range(num_particles):
-        y = random.random()
-        circle = plt.Circle((x, y), radius, facecolor=colour, alpha=0.3)
-        _ax.add_patch(circle)
+    if num_particles > 0:
+        for j in range(num_particles):
+            y = random.random()
+            circle = plt.Circle((x, y), radius, facecolor=colour, alpha=0.3)
+            _ax.add_patch(circle)
 
 
 """
@@ -133,19 +125,18 @@ if not os.path.exists(f"{plot_path}/frames"):
     os.makedirs(f"{plot_path}/frames")
 
 images = []
-# The time step between each frame
-tau_period = 0.2
-
+# The number of frames
+num_frames = 51
 # Setting up the colour gradient for E
 E_norm = mpl.colors.Normalize(vmin=E_min, vmax=1.0)
-
-for n in range(int(N_time * delta_tau / tau_period)):
-    m = n * int(tau_period / delta_tau)
+for n in range(num_frames):
+    m = int(n * len(times) / num_frames)
     """
     Set up figure for the overall plot
     """
     fig, ax = plt.subplots(figsize=(8, 4))
-    t = np.round(float(times[m]), 3)
+    t = np.format_float_positional(float(times[m]), precision=3, unique=False,
+                                   fractional=False, trim='k')
     print("Time:", t)
 
     # Get the arrays for the current timestep
@@ -173,12 +164,13 @@ for n in range(int(N_time * delta_tau / tau_period)):
 
     # Save figure
     frame_path = f"{plot_path}/frames/frame_{n}.png"
-    fig.savefig(frame_path, bbox_inches="tight")
+    fig.savefig(frame_path, bbox_inches="tight", dpi=400)
+    plt.close()
     image = Image.open(frame_path)
     images.append(image)
     os.remove(frame_path)
 
 # Make the .gif and delete the frames directory
-images[0].save(f"{plot_path}/all_animated.gif", save_all=True,
+images[0].save(f"{plot_path}/_diagram_animation.gif", save_all=True,
                append_images=images[1:], duration=250, loop=0)
-os.rmdir(f"{plot_path}/frames")
+# os.rmdir(f"{plot_path}/frames")

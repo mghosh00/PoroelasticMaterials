@@ -1,0 +1,32 @@
+{
+  "trial": "phi_f0_0_5_gamma_0_1",
+  "comp": {
+    "delta_t": 0.35,
+    "N_time": 15,
+    "N_x": 1000,
+    "log_time": "True",
+    "delta_tau": 0.35,
+    "t(tau)": "tau"
+  },
+  "phys": {
+    "L": 45e-3,
+    "E_min": 0.2,
+    "D_m": 1e-9,
+    "nu": 0.3,
+    "mu": 1e-3
+  },
+  "scales": {
+    "k": 5.56e-15,
+    "E": 1.37e5,
+    "v": 0.75
+  },
+  "ics": {
+    "phi_f": 0.5
+  },
+  "bcs": {
+    "sigma_left": 0.0,
+    "Delta p": 0.1,
+    "c_plus": 0.5,
+    "c_minus": 1.0
+  }
+}

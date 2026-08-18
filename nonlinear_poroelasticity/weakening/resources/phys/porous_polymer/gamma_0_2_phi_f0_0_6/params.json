@@ -1,0 +1,50 @@
+{
+  "trial": "porous_polymer",
+  "Q_": {
+    "name": "gamma_0_2_phi_f0_0_6",
+    "expr": "0.1",
+    "expr_old": "0.0",
+    "Q_f_final": 1.0
+  },
+  "comp": {
+    "delta_tau": 0.0001,
+    "N_time": 650,
+    "N_x": 1000,
+    "log_time": "True",
+    "t(tau)": "2e-6 * (exp(250 * tau) - 1)",
+    "t(tau": "tau < 0.01 ? tau + 0.0001 : tau < 0.05 ? 100 * (tau - 0.0099) : tau < 0.1 ? 10000 * (tau - 0.0495) : 10000000 * tau"
+  },
+  "phys": {
+    "L": 45e-3,
+    "beta_E": 3.38e-7,
+    "E_min": 0.2,
+    "D_m": 1e-9,
+    "nu": 0.3,
+    "mu": 1e-3
+  },
+  "scales": {
+    "t": 9.08e5,
+    "k": 5.56e-15,
+    "c": 3.26,
+    "E": 1.37e5,
+    "v": 0.75,
+    "v_f": 0.75,
+    "v_s": 0.75
+  },
+  "ics": {
+    "phi_f": 0.6,
+    "E": 1.0,
+    "c": 0.0,
+    "u_s": 0.0,
+    "a": 0.0,
+    "v": 1e4
+  },
+  "bcs": {
+    "u_s_right": 0.0,
+    "sigma_left": 0.0,
+    "Delta p": 0.2,
+    "p_f_right": 0.0,
+    "c_plus": 0.5,
+    "c_minus": 1.0
+  }
+}
